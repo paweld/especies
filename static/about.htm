@@ -1,0 +1,72 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<meta name="GENERATOR" content="Microsoft FrontPage Express 2.0">
+
+<title>About e-Species</title><link rel="stylesheet" type="text/css" href="stylesheet.css"></head>
+<body bgcolor="#ffffff">
+
+<h2>About e-Species Pad</h2>
+
+<p>This is a pure <a href="http://www.python.org/">Python</a> desktop-based implementation of a taxonomically intelligent species
+search engine. It searches biological databases for a taxonomic
+name. The search is done "on the fly" using <a href="http://en.wikipedia.org/wiki/Web_service">web services</a>
+(SOAP/XML) or URL API's. The results are presented on a&nbsp;page which
+is automatically stored in the users' personal computer and can be
+displayed by any web browser. &nbsp;</p>
+
+<h3>Classification</h3>
+
+<p>Synonyms and higher taxa for a taxon name are retrieved using
+the <a href="http://www.sp2000.org/">Catalogue of Life</a><a href="http://www.catalogueoflife.org/annual-checklist/2010/webservice">
+Web Service</a></p>
+
+<h3>Description</h3>
+
+<p>Display of snippets from <a href="http://en.wikipedia.org/">Wikipedia</a>
+articles makes use of a <a href="http://www.dapper.net/">Dapper</a>
+transform. A link to the original article is also displayed.&nbsp;</p><h3>Keywords</h3><p>Keyword extraction uses the Term Extraction service from <a href="http://fivefilters.org/">FiveFilters.org</a> for extracting&nbsp;terms from the contents of Wikipedia articles.</p>
+
+<h3>Genomics</h3>
+
+<p>Queries to NCBI are performed using the <a href="http://eutils.ncbi.nlm.nih.gov/entrez/query/static/eutils_help.html">Entrez
+Programming Utilities</a>. The <a href="http://eutils.ncbi.nlm.nih.gov/entrez/query/static/esearch_help.html">ESearch</a>
+tool is used to look up a taxon name and, if the name is found,
+the <a href="http://eutils.ncbi.nlm.nih.gov/entrez/query/static/esummary_help.html">ESummary</a>
+tool is called to get basic statistics on what NCBI holds for
+that taxon. Links to external information resources for the taxon
+are retrieved using the <a href="http://www.ncbi.nlm.nih.gov/entrez/query/static/elink_help.html">Elink</a>tool.</p>
+
+<h3>Maps</h3>
+
+<p>Distribution maps for a taxon are retrieved from <a href="http://www.gbif.org/">GBIF</a> using code inspired in the <a href="http://www.apple.com/downloads/dashboard/information/speciesdistributionmap.html">Species
+Distribution Widget</a> written by Tim Robertson and Dave Martin.</p>
+
+<h3>Images</h3>
+
+<p><a href="http://images.google.com/">Google Images</a> is used
+to find up to five images for the query term.</p>
+
+<h3>Documents</h3>
+
+<p>Documents are retrieved from <a href="http://scholar.google.com/">Google Scholar</a>. The script
+extracts references by screen scraping, since Google has not
+released any API for Google Scholar.</p><h3>Related Projects</h3>
+
+<p><a href="http://taxonomy.zoology.gla.ac.uk/rod/rod.html">Rod
+Page</a> has written the original <a href="http://ispecies.org/">iSpecies</a>
+taxonomically-based search engine, that also uses web services <a href="http://ispiders.blogspot.com/">David Shorthouse</a> has
+written an <a href="http://www.canadianarachnology.org/iSpecies/">iSpecies
+Clone</a>, that uses <a href="http://en.wikipedia.org/wiki/JSON">JSON</a>.</p>
+
+<h3>Source Code</h3>
+
+<p>This program has been developed on an IBM-PC
+compatible machine running Windows XP SP3, Linux Ubuntu 12.04 Precise Pangolin and
+Python 2.7</p>
+
+<p>The source code is released under the terms of the <a href="http://www.gnu.org/copyleft/gpl.html">GNU General Public
+License</a>, and is available from <a href="https://sourceforge.net/projects/e-species/">SourceForge</a>.</p><h3>Contact</h3>
+
+<p>Send comments and suggestions to <a href="mailto:maurobio@gmail.com">Mauro J. Cavalcanti</a></p>
+</body></html>
