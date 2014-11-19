@@ -18,7 +18,7 @@ e-Species aggregates information from multiple sources, as follows:
  - Gets up to five images for the taxon name from Google Images 
  - Extracts bibliographic references for the taxon from Google Scholar
 
-e-SspeciesPad is a slightly updated, Qt-based desktop version. In this version, search results are automatically stored on disk, as HTML pages which can be loaded into any web browser or word processor.
+e-SspeciesPad is a slightly improved, Qt-based desktop version. In this version, search results are automatically stored on disk, as HTML pages which can be loaded into any web browser or word processor.
 
 Please send bug reports, suggestions, and comments to Mauro J. Cavalcanti
 <maurobio@gmail.com>
