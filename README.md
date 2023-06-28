@@ -1,4 +1,4 @@
-![](.\static\icon.png)especies
+# <img src="static\icon.png" alt="e-Species"/> e-Species
 ========
 
 A taxonomically intelligent biodiversity search engine
