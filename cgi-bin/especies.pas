@@ -10,15 +10,15 @@
 {                                                                                }
 {  This program is distributed in the hope that it will be useful,               }
 {  but WITHOUT ANY WARRANTY; without even the implied warranty of                }
-{  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the                 }
+{  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the                  }
 {  GNU General Public License for more details.                                  }
 {                                                                                }
 {  You should have received a copy of the GNU General Public License             }
 {  along with this program. If not, see <http://www.gnu.org/licenses/>.          }
-{                                                                                }                                    
+{                                                                                }
 {  Requirements:                                                                 }
 {    Free Pascal version 3.2 or higher                                           }
-{                                                                                }   
+{                                                                                }
 {  REVISION HISTORY:                                                             }
 {    Version 1.00, 29th Jun 2023 - Initial public release of the Free Pascal     }
 {                                version (ported from an earlier Python version, }
@@ -124,21 +124,30 @@ var
   var
     JsonData: TJsonData;
   begin
-    JsonData := GetJson(TFPHTTPClient.SimpleGet(GBIF_URL + '/species/?name=' +
-      StringReplace(queryStr, ' ', '%20', [rfReplaceAll])));
-    key := JsonData.FindPath('results[0].key').AsInteger;
-    scientificname := JsonData.FindPath('results[0].scientificName').AsString;
-    //author := JsonData.FindPath('results[0].authorship').AsString;
-    status := JsonData.FindPath('results[0].taxonomicStatus').AsString;
-    status := LowerCase(StringReplace(status, '_', ' ', [rfReplaceAll]));
-    if status <> 'accepted' then
-      valid_name := JsonData.FindPath('results[0].accepted').AsString;
-    kingdom := JsonData.FindPath('results[0].kingdom').AsString;
-    phylum := JsonData.FindPath('results[0].phylum').AsString;
-    classe := JsonData.FindPath('results[0].class').AsString;
-    order := JsonData.FindPath('results[0].order').AsString;
-    family := JsonData.Findpath('results[0].family').AsString;
-    JsonData.Free;
+    try
+      try
+        JsonData := GetJson(TFPHTTPClient.SimpleGet(GBIF_URL +
+          '/species/?name=' + StringReplace(queryStr, ' ', '%20', [rfReplaceAll])));
+        key := JsonData.FindPath('results[0].key').AsInteger;
+        scientificname := JsonData.FindPath('results[0].scientificName').AsString;
+        //author := JsonData.FindPath('results[0].authorship').AsString;
+        status := JsonData.FindPath('results[0].taxonomicStatus').AsString;
+        status := LowerCase(StringReplace(status, '_', ' ', [rfReplaceAll]));
+        if status <> 'accepted' then
+          valid_name := JsonData.FindPath('results[0].accepted').AsString;
+        kingdom := JsonData.FindPath('results[0].kingdom').AsString;
+        phylum := JsonData.FindPath('results[0].phylum').AsString;
+        classe := JsonData.FindPath('results[0].class').AsString;
+        order := JsonData.FindPath('results[0].order').AsString;
+        family := JsonData.Findpath('results[0].family').AsString;
+      except
+        on E: Exception do
+          WriteLn('<h3><font color="red">Error fetching classification data from CoL: ',
+            E.ClassName, #13#10, E.Message, '</font></h3>');
+      end;
+    finally
+      JsonData.Free;
+    end;
   end;
 
   function TGBIFSearch.Count(key: integer): integer;
@@ -146,11 +155,20 @@ var
     JsonData: TJsonData;
     nrecs: integer;
   begin
-    JsonData := GetJson(TFPHTTPClient.SimpleGet(GBIF_URL +
-      '/occurrence/search?taxonKey=' + IntToStr(key)));
-    nrecs := JsonData.FindPath('count').AsInteger;
-    JsonData.Free;
-    Result := nrecs;
+    try
+      try
+        JsonData := GetJson(TFPHTTPClient.SimpleGet(GBIF_URL +
+          '/occurrence/search?taxonKey=' + IntToStr(key)));
+        nrecs := JsonData.FindPath('count').AsInteger;
+		Result := nrecs;
+      except
+        on E: Exception do
+          WriteLn('<h3><font color="red">Error fetching number of records from GBIF: ',
+            E.ClassName, #13#10, E.Message, '</font></h3>');
+      end;
+    finally
+      JsonData.Free;
+    end;
   end;
 
   { TNCBISearch methods }
@@ -178,63 +196,73 @@ var
     outfile: TextFile;
     Result: TXPathVariable;
   begin
-    XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esearch.fcgi?db=taxonomy&term=' +
-      StringReplace(queryStr, ' ', '+', [rfReplaceAll]));
-    AssignFile(outfile, 'temp.xml');
-    Rewrite(outfile);
-    WriteLn(outfile, XmlData);
-    CloseFile(outfile);
-    ReadXMLFile(Doc, 'temp.xml');
+    try
+      try
+        XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esearch.fcgi?db=taxonomy&term=' +
+          StringReplace(queryStr, ' ', '+', [rfReplaceAll]));
+        AssignFile(outfile, 'temp.xml');
+        Rewrite(outfile);
+        WriteLn(outfile, XmlData);
+        CloseFile(outfile);
+        ReadXMLFile(Doc, 'temp.xml');
 
-    { Get taxon id }
-    Result := EvaluateXPathExpression('/eSearchResult/IdList/Id', Doc.DocumentElement);
-    id := StrToInt(string(Result.AsText));
+        { Get taxon id }
+        Result := EvaluateXPathExpression('/eSearchResult/IdList/Id',
+          Doc.DocumentElement);
+        id := StrToInt(string(Result.AsText));
 
-    XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esummary.fcgi?db=taxonomy&id=' +
-      IntToStr(Id) + '&retmode=xml');
-    AssignFile(outfile, 'temp.xml');
-    Rewrite(outfile);
-    WriteLn(outfile, XmlData);
-    CloseFile(outfile);
-    ReadXMLFile(Doc, 'temp.xml');
+        XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esummary.fcgi?db=taxonomy&id=' +
+          IntToStr(Id) + '&retmode=xml');
+        AssignFile(outfile, 'temp.xml');
+        Rewrite(outfile);
+        WriteLn(outfile, XmlData);
+        CloseFile(outfile);
+        ReadXMLFile(Doc, 'temp.xml');
 
-    { Get summary data }
-    Result := EvaluateXPathExpression('/eSummaryResult/DocSum/Item[@Name="Division"]',
-      Doc.DocumentElement);
-    division := string(Result.AsText);
+        { Get summary data }
+        Result := EvaluateXPathExpression(
+          '/eSummaryResult/DocSum/Item[@Name="Division"]', Doc.DocumentElement);
+        division := string(Result.AsText);
 
-    Result := EvaluateXPathExpression(
-      '/eSummaryResult/DocSum/Item[@Name="ScientificName"]', Doc.DocumentElement);
-    scientificname := string(Result.AsText);
+        Result := EvaluateXPathExpression(
+          '/eSummaryResult/DocSum/Item[@Name="ScientificName"]', Doc.DocumentElement);
+        scientificname := string(Result.AsText);
 
-    Result := EvaluateXPathExpression('/eSummaryResult/DocSum/Item[@Name="CommonName"]',
-      Doc.DocumentElement);
-    commonname := string(Result.AsText);
+        Result := EvaluateXPathExpression(
+          '/eSummaryResult/DocSum/Item[@Name="CommonName"]', Doc.DocumentElement);
+        commonname := string(Result.AsText);
 
-    { Get nucleotide sequences }
-    XmlData := TFPHTTPClient.SimpleGet(NCBI_URL +
-      'esearch.fcgi?db=nucleotide&term=' + StringReplace(queryStr,
-      ' ', '+', [rfReplaceAll]));
-    AssignFile(outfile, 'temp.xml');
-    Rewrite(outfile);
-    WriteLn(outfile, XmlData);
-    CloseFile(outfile);
-    ReadXMLFile(Doc, 'temp.xml');
-    nucNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
-      Doc.DocumentElement).AsText));
+        { Get nucleotide sequences }
+        XmlData := TFPHTTPClient.SimpleGet(NCBI_URL +
+          'esearch.fcgi?db=nucleotide&term=' + StringReplace(queryStr,
+          ' ', '+', [rfReplaceAll]));
+        AssignFile(outfile, 'temp.xml');
+        Rewrite(outfile);
+        WriteLn(outfile, XmlData);
+        CloseFile(outfile);
+        ReadXMLFile(Doc, 'temp.xml');
+        nucNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
+          Doc.DocumentElement).AsText));
 
-    { Get protein sequences }
-    XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esearch.fcgi?db=protein&term=' +
-      StringReplace(queryStr, ' ', '+', [rfReplaceAll]));
-    AssignFile(outfile, 'temp.xml');
-    Rewrite(outfile);
-    WriteLn(outfile, XmlData);
-    CloseFile(outfile);
-    ReadXMLFile(Doc, 'temp.xml');
-    protNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
-      Doc.DocumentElement).AsText));
-    Result.Free;
-    Doc.Free;
+        { Get protein sequences }
+        XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esearch.fcgi?db=protein&term=' +
+          StringReplace(queryStr, ' ', '+', [rfReplaceAll]));
+        AssignFile(outfile, 'temp.xml');
+        Rewrite(outfile);
+        WriteLn(outfile, XmlData);
+        CloseFile(outfile);
+        ReadXMLFile(Doc, 'temp.xml');
+        protNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
+          Doc.DocumentElement).AsText));
+      except
+        on E: Exception do
+          WriteLn('<h3><font color="red">Error fetching biomolecular data from NCBI: ',
+            E.ClassName, #13#10, E.Message, '</font></h3>');
+      end;
+    finally
+      Result.Free;
+      Doc.Free;
+    end;
   end;
 
   function TNCBISearch.Links(id: integer): TStringList;
@@ -247,24 +275,34 @@ var
     i: integer;
   begin
     { Get list of links }
-    XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'elink.fcgi?dbfrom=taxonomy&id=' +
-      IntToStr(id) + '&cmd=llinkslib');
-    AssignFile(outfile, 'temp.xml');
-    Rewrite(outfile);
-    WriteLn(outfile, XmlData);
-    CloseFile(outfile);
-    ReadXMLFile(Doc, 'temp.xml');
-    Result1 := EvaluateXPathExpression('//ObjUrl/Url', Doc.DocumentElement);
-    Result2 := EvaluateXPathExpression('//ObjUrl/Provider/Name', Doc.DocumentElement);
-    NodeSet1 := Result1.AsNodeSet;
-    NodeSet2 := Result2.AsNodeSet;
-    if NodeSet1.Count > 0 then
-      for i := 0 to NodeSet1.Count - 1 do
-        results.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
-          '|' + string(TDomElement(NodeSet2.Items[i]).TextContent));
-    Result1.Free;
-    Result2.Free;
-    Result := results;
+    try
+      try
+        XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'elink.fcgi?dbfrom=taxonomy&id=' +
+          IntToStr(id) + '&cmd=llinkslib');
+        AssignFile(outfile, 'temp.xml');
+        Rewrite(outfile);
+        WriteLn(outfile, XmlData);
+        CloseFile(outfile);
+        ReadXMLFile(Doc, 'temp.xml');
+        Result1 := EvaluateXPathExpression('//ObjUrl/Url', Doc.DocumentElement);
+        Result2 := EvaluateXPathExpression('//ObjUrl/Provider/Name',
+          Doc.DocumentElement);
+        NodeSet1 := Result1.AsNodeSet;
+        NodeSet2 := Result2.AsNodeSet;
+        if NodeSet1.Count > 0 then
+          for i := 0 to NodeSet1.Count - 1 do
+            results.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
+              '|' + string(TDomElement(NodeSet2.Items[i]).TextContent));
+		Result := results;	  
+      except
+        on E: Exception do
+          WriteLn('<h3><font color="red">Error fetching links from NCBI: ',
+            E.ClassName, #13#10, E.Message, '</font></h3>');
+      end;
+    finally
+      Result1.Free;
+      Result2.Free;
+    end;
   end;
 
   { TWikiSearch methods }
@@ -288,13 +326,22 @@ var
     Client: TFPHttpClient;
   begin
     Client := TFPHttpClient.Create(nil);
-    { Allow redirections }
-    Client.AllowRedirect := True;
-    JsonData := GetJson(Client.Get(WIKIPEDIA_URL +
-      StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
-    Client.Free;
-    Result := JsonData.FindPath('extract').AsString;
-    JsonData.Free;
+    try
+      try
+        { Allow redirections }
+        Client.AllowRedirect := True;
+        JsonData := GetJson(Client.Get(WIKIPEDIA_URL +
+          StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
+		Result := JsonData.FindPath('extract').AsString;  
+      except
+        on E: Exception do
+          WriteLn('<h3><font color="red">Error fetching text snippet from Wikipedia: ',
+            E.ClassName, #13#10, E.Message, '</font></h3>');
+      end;
+    finally
+      Client.Free;
+    end;
+	JsonData.Free; 
   end;
 
   { Search images from Wikimedia Commons }
@@ -304,19 +351,28 @@ var
     Client: TFPHttpClient;
     i: integer;
   begin
-    Client := TFPHttpClient.Create(nil);
-    Client.AllowRedirect := True;
-    JsonData := GetJson(Client.Get(WIKIMEDIA_URL +
-      StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
-    Client.Free;
-    JsonItems := JsonData.FindPath('items');
-    for i := 0 to limit - 1 do
-    begin
-      JsonItem := JsonItems.Items[i];
-      candidates.Add(JsonItem.FindPath('title').AsString);
+    try
+      try
+        Client := TFPHttpClient.Create(nil);
+        Client.AllowRedirect := True;
+        JsonData := GetJson(Client.Get(WIKIMEDIA_URL +
+          StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
+        Client.Free;
+        JsonItems := JsonData.FindPath('items');
+        for i := 0 to limit - 1 do
+        begin
+          JsonItem := JsonItems.Items[i];
+          candidates.Add(JsonItem.FindPath('title').AsString);
+        end;
+		Result := candidates;
+      except
+        on E: Exception do
+          WriteLn('<h3><font color="red">Error fetching images from Wikimedia: ',
+            E.ClassName, #13#10, E.Message, '</font></h3>');
+      end;
+    finally
+      JsonData.Free;
     end;
-    Result := candidates;
-    JsonData.Free;
   end;
 
   { TFFSearch methods }
@@ -343,15 +399,24 @@ var
     XmlData: ansistring;
     outfile: TextFile;
   begin
-    XmlData := TFPHTTPClient.SimpleGet(FF_URL + 'extract.php?text=' +
-      StringReplace(contextStr, ' ', '+', [rfReplaceAll]) + '&output=txt&max=' +
-      IntToStr(limit));
-    AssignFile(outfile, 'temp.txt');
-    Rewrite(outfile);
-    WriteLn(outfile, XmlData);
-    CloseFile(outfile);
-    Lines.LoadFromFile('temp.txt');
-    Result := Lines;
+    try
+      try
+        XmlData := TFPHTTPClient.SimpleGet(FF_URL + 'extract.php?text=' +
+          StringReplace(contextStr, ' ', '+', [rfReplaceAll]) +
+          '&output=txt&max=' + IntToStr(limit));
+        AssignFile(outfile, 'temp.txt');
+        Rewrite(outfile);
+        WriteLn(outfile, XmlData);
+        CloseFile(outfile);
+        Lines.LoadFromFile('temp.txt');
+		Result := Lines;
+      except
+        on E: Exception do
+          WriteLn('<h3><font color="red">Error fetching keywords from FiveFilters: ',
+            E.ClassName, #13#10, E.Message, '</font></h3>');
+      end;
+    finally
+    end;
   end;
 
   { TPubMedSearch methods }
@@ -379,45 +444,56 @@ var
     NodeSet1, NodeSet2, Ids: TNodeSet;
     id: string;
   begin
-    XmlData := TFPHTTPClient.SimpleGet(PUBMED_URL + 'esearch.fcgi?db=pubmed&retmax=' +
-      IntToStr(limit) + '&sort=relevance&term=' +
-      StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
-    AssignFile(outfile, 'temp.xml');
-    Rewrite(outfile);
-    WriteLn(outfile, XmlData);
-    CloseFile(outfile);
-    ReadXMLFile(Doc, 'temp.xml');
+    try
+      try
+        XmlData := TFPHTTPClient.SimpleGet(PUBMED_URL +
+          'esearch.fcgi?db=pubmed&retmax=' + IntToStr(limit) +
+          '&sort=relevance&term=' + StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+        AssignFile(outfile, 'temp.xml');
+        Rewrite(outfile);
+        WriteLn(outfile, XmlData);
+        CloseFile(outfile);
+        ReadXMLFile(Doc, 'temp.xml');
 
-    { Get reference ids }
-    Result1 := EvaluateXPathExpression('/eSearchResult/IdList/Id', Doc.DocumentElement);
-    Ids := Result1.AsNodeSet;
-    id := '';
-    if Ids.Count > 0 then
-      for i := 0 to Ids.Count - 1 do
-        id := id + string(TDomElement(Ids.Items[i]).TextContent) + ',';
+        { Get reference ids }
+        Result1 := EvaluateXPathExpression('/eSearchResult/IdList/Id',
+          Doc.DocumentElement);
+        Ids := Result1.AsNodeSet;
+        id := '';
+        if Ids.Count > 0 then
+          for i := 0 to Ids.Count - 1 do
+            id := id + string(TDomElement(Ids.Items[i]).TextContent) + ',';
 
-    XmlData := TFPHTTPClient.SimpleGet(PUBMED_URL + 'efetch.fcgi?db=pubmed&id=' +
-      id + '&retmode=xml');
-    AssignFile(outfile, 'temp.xml');
-    Rewrite(outfile);
-    WriteLn(outfile, XmlData);
-    CloseFile(outfile);
-    ReadXMLFile(Doc, 'temp.xml');
+        XmlData := TFPHTTPClient.SimpleGet(PUBMED_URL + 'efetch.fcgi?db=pubmed&id=' +
+          id + '&retmode=xml');
+        AssignFile(outfile, 'temp.xml');
+        Rewrite(outfile);
+        WriteLn(outfile, XmlData);
+        CloseFile(outfile);
+        ReadXMLFile(Doc, 'temp.xml');
 
-    { Get list of references }
-    Result1 := EvaluateXPathExpression('//Article/ArticleTitle', Doc.DocumentElement);
-    Result2 := EvaluateXPathExpression(
-      '//PubmedData/ArticleIdList/ArticleId[@IdType="doi"]', Doc.DocumentElement);
-    NodeSet1 := Result1.AsNodeSet;
-    NodeSet2 := Result2.AsNodeSet;
-    if NodeSet1.Count > 0 then
-      for i := 0 to NodeSet1.Count - 1 do
-        references.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
-          '=' + string(TDomElement(NodeSet2.Items[i]).TextContent));
-    Result1.Free;
-    Result2.Free;
-    Doc.Free;
-    Result := references;
+        { Get list of references }
+        Result1 := EvaluateXPathExpression('//Article/ArticleTitle',
+          Doc.DocumentElement);
+        Result2 := EvaluateXPathExpression(
+          '//PubmedData/ArticleIdList/ArticleId[@IdType="doi"]', Doc.DocumentElement);
+        NodeSet1 := Result1.AsNodeSet;
+        NodeSet2 := Result2.AsNodeSet;
+        if NodeSet1.Count > 0 then
+          for i := 0 to NodeSet1.Count - 1 do
+            references.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
+              '=' + string(TDomElement(NodeSet2.Items[i]).TextContent));
+		Result := references;	  
+      except
+        on E: Exception do
+          WriteLn('<h3><font color="red">Error fetching references from PubMed: ',
+            E.ClassName, #13#10, E.Message, '</font></h3>');
+      end;
+    finally
+      Result1.Free;
+      Result2.Free;
+      Doc.Free;
+    end;
   end;
 
 begin
@@ -439,7 +515,7 @@ begin
     WriteLn('<h3>Error filling out form</h3>');
     WriteLn('<p>Please enter a binomial specific epithet into the text box.</a>');
     WriteLn('<p>Remember: Only <a href="http://en.wikipedia.org/wiki/Species">species</a> are true natural entities!</p>');
-    WriteLn('<a href="/index.htm">Go back to the query form</a>');
+    WriteLn('<a href="../especies/index.htm">Go back to the query form</a>');
   end
   else
   begin
@@ -451,7 +527,7 @@ begin
     WriteLn('<body bgcolor="#ffffff">');
     WriteLn('<h1><img src="../especies/especies.png" height="73" width="385"></h1>');
     WriteLn('<h3>A taxonomically intelligent biodiversity search engine</h3>');
-    WriteLn('<p>Search biological databases for a taxonomic name. The search is done "on the fly" using web services (JSON/XML) or URL API''s. <a href="/about.htm">Learn more about how it works.</a></p>');
+    WriteLn('<p>Search biological databases for a taxonomic name. The search is done "on the fly" using web services (JSON/XML) or URL API''s. <a href="../especies/about.htm">Learn more about how it works.</a></p>');
     WriteLn('<form>');
     WriteLn('<input type="button" value="Back" onclick="history.back()">');
     WriteLn('</form>');
