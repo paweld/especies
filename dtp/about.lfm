@@ -14,7 +14,7 @@ object AboutForm: TAboutForm
   object ProductIcon: TImage
     Left = 18
     Height = 48
-    Top = 20
+    Top = 21
     Width = 48
     AutoSize = True
     Picture.Data = {
@@ -134,7 +134,7 @@ object AboutForm: TAboutForm
   object ProductNameLabel: TLabel
     Left = 84
     Height = 15
-    Top = 20
+    Top = 21
     Width = 104
     Caption = 'e-Species Desktop'
     Font.Style = [fsBold]
@@ -144,7 +144,7 @@ object AboutForm: TAboutForm
   object VersionNumberLabel: TLabel
     Left = 206
     Height = 15
-    Top = 20
+    Top = 21
     Width = 33
     Caption = 'v 0.0.0'
     ParentColor = False
@@ -152,7 +152,7 @@ object AboutForm: TAboutForm
   object DescriptionLabel: TLabel
     Left = 84
     Height = 15
-    Top = 43
+    Top = 44
     Width = 281
     Caption = 'A taxonomically intelligent biodiversity search engine'
     ParentColor = False
@@ -160,7 +160,7 @@ object AboutForm: TAboutForm
   object CommentsLabel: TLabel
     Left = 84
     Height = 30
-    Top = 64
+    Top = 65
     Width = 393
     Caption = 'Search biological databases for a taxonomic name.  The search is done "on'#13#10'the fly" using web services (JSON/XML) or URL API''s.'
     ParentColor = False
@@ -169,7 +169,7 @@ object AboutForm: TAboutForm
   object CopyrightLabel: TLabel
     Left = 84
     Height = 15
-    Top = 112
+    Top = 106
     Width = 173
     Caption = '© 2008-2023 Mauro J. Cavalcanti'
     ParentColor = False
@@ -187,7 +187,7 @@ object AboutForm: TAboutForm
   object SystemInformationLabel: TLabel
     Left = 84
     Height = 13
-    Top = 142
+    Top = 132
     Width = 102
     Caption = 'System Information:'
     Font.Height = -11
@@ -197,7 +197,7 @@ object AboutForm: TAboutForm
   object CompilerLabel: TLabel
     Left = 84
     Height = 13
-    Top = 165
+    Top = 155
     Width = 49
     Caption = 'Compiler:'
     Font.Height = -11
@@ -207,7 +207,7 @@ object AboutForm: TAboutForm
   object IDELabel: TLabel
     Left = 84
     Height = 13
-    Top = 180
+    Top = 170
     Width = 20
     Caption = 'IDE:'
     Font.Height = -11
@@ -217,7 +217,7 @@ object AboutForm: TAboutForm
   object PlatformLabel: TLabel
     Left = 84
     Height = 13
-    Top = 197
+    Top = 187
     Width = 46
     Caption = 'Platform:'
     Font.Height = -11
@@ -227,11 +227,19 @@ object AboutForm: TAboutForm
   object OperatingSystemLabel: TLabel
     Left = 84
     Height = 13
-    Top = 213
+    Top = 203
     Width = 18
     Caption = 'OS:'
     Font.Height = -11
     ParentColor = False
     ParentFont = False
+  end
+  object ChromiumLabel: TLabel
+    Left = 84
+    Height = 15
+    Top = 220
+    Width = 186
+    Caption = 'Chromium Embedded Framework: '
+    ParentColor = False
   end
 end

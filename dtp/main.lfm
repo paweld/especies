@@ -18,22 +18,14 @@ object MainForm: TMainForm
   LCLVersion = '2.0.12.0'
   object BrowserWindow: TBrowserWindow
     Left = 0
-    Height = 465
+    Height = 488
     Hint = '|Ready'
     Top = 32
     Width = 777
     Align = alClient
     TabOrder = 1
-  end
-  object StatusBar: TStatusBar
-    Left = 0
-    Height = 23
-    Top = 497
-    Width = 777
-    AutoHint = True
-    Panels = <>
-    SimpleText = 'Ready'
-    SizeGrip = False
+    OnBrowserCreated = BrowserWindowBrowserCreated
+    OnBrowserClosed = BrowserWindowBrowserClosed
   end
   object Panel: TPanel
     Left = 0
@@ -222,5 +214,11 @@ object MainForm: TMainForm
       000000000000000000000000000000000000000000000000000000000000AAAA
       AA18000000000000000000000000
     }
+  end
+  object Chromium: TChromium
+    OnBeforePopup = ChromiumBeforePopup
+    OnOpenUrlFromTab = ChromiumOpenUrlFromTab
+    Left = 635
+    Top = 72
   end
 end

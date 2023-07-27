@@ -15,6 +15,7 @@ type
   TAboutForm = class(TForm)
     CompilerLabel: TLabel;
     IDELabel: TLabel;
+    ChromiumLabel: TLabel;
     OKButton: TButton;
     OperatingSystemLabel: TLabel;
     PlatformLabel: TLabel;
@@ -43,6 +44,8 @@ function OSVersion: Str255;
 implementation
 
 {$R *.lfm}
+
+uses main;
 
 function OSVersion: Str255;
 begin
@@ -100,10 +103,11 @@ var
 begin
   if GetProgramVersion(Quad) then
     VersionNumberLabel.Caption := 'v.' + VersionQuadToStr(Quad);
-  CompilerLabel.Caption := 'Compiler: ' + ' ' + Format('Free Pascal v.%s', [{$I %FPCVERSION%}]);
+  CompilerLabel.Caption := 'Compiler: ' + Format('Free Pascal v.%s', [{$I %FPCVERSION%}]);
   IDELabel.Caption := 'IDE: ' + Format('Lazarus v.%s', [lcl_version]);
-  PlatformLabel.Caption := 'Platform: ' + ' ' + {$I %FPCTARGETOS%};
+  PlatformLabel.Caption := 'Platform: ' + {$I %FPCTARGETOS%};
   OperatingSystemLabel.Caption := 'OS: ' + OSVersion;
+  ChromiumLabel.Caption := 'Chromium Embedded Framework: v.' + CEFVersion;
 end;
 
 procedure TAboutForm.OKButtonClick(Sender: TObject);
