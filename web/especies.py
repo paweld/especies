@@ -78,6 +78,8 @@
 #                                for the deprecated CoL webservice               #
 #                                Fixed duplicate entries in list of PubMed       #
 #                                references                                      #
+#    Version 1.50  19th Jul 23 - Added italics to scientific names in taxon      #
+#                                classification output                           #
 #================================================================================#
 
 import cgi
@@ -127,8 +129,8 @@ class GBIFSearch:
             # Get taxon id
             key = result['results'][0]['key']
             # Get name and status
-            name = result['results'][0]['scientificName']
-            #author = result['results'][0]['authorship']
+            name = result['results'][0]['canonicalName']
+            author = result['results'][0]['authorship']
             status = result['results'][0]['taxonomicStatus']
             status = status.lower()
             # If name is a synonym, get the accepted name
@@ -151,10 +153,11 @@ class GBIFSearch:
         except:
             key = 0
             name = ""
+            author = ''
             status = ""
             valid_name = ""
             taxon = []
-        return (key, name, status, valid_name, taxon)
+        return (key, name, author, status, valid_name, taxon)
     
     def count(self, key):
         response = urllib.urlopen(self.GBIF_URL + "/occurrence/search?taxonKey=" + str(key))
@@ -326,21 +329,24 @@ if __name__ == '__main__':
                 print "<html>"
                 print "<head>"	
                 print "<title>e-Species search results for " + queryStr + "</title>"
-                print "<link rel=""stylesheet"" type=""text/css"" href=""/stylesheet.css"">"
+                print "<link rel=""stylesheet"" type=""text/css"" href=""../especies/stylesheet.css"">"
                 print "</head>"
                 print "<body bgcolor=""#ffffff"">"
-                print "<h1><img src=""/especies.png"" height=""73"" width=""385""></h1>"
+                print "<h1><img src=""../especies/especies.png"" height=""73"" width=""385""></h1>"
                 print "<h3>A taxonomically intelligent biodiversity search engine</h3>"
-                print "<p>Search biological databases for a taxonomic name. The search is done ""on the fly"" using web services (JSON/XML) or URL API's. <a href=""/about.htm"">Learn more about how it works.</a></p>"
+                print "<p>Search biological databases for a taxonomic name. The search is done ""on the fly"" using web services (JSON/XML) or URL API's. <a href=""../especies/about.htm"">Learn more about how it works.</a></p>"
                 print "<form>"
                 print "<input type=""button"" value=""Back"" onclick=""history.back()"">"
                 print "</form>"
                 
                 searchGBIF = GBIFSearch()
-                (key, name, status, valid_name, taxon) = searchGBIF.search(queryStr)
-                if status != "accepted":
-                    status = status + " of " + valid_name
-                print "<h2>" + queryStr + " (" + status + ")</h2>"
+                (key, name, author, status, valid_name, taxon) = searchGBIF.search(queryStr)
+                if len(status) > 0: 
+                    if status != "accepted":
+                        status = " (" + status + " of <i>" + valid_name + "</i>" + ") " + author
+                    else:
+                        status = " (" + status + ")"
+                print "<h2><i>" + queryStr + "</i>" + author + status + "</h2>"
                 print "<h3>Classification from CoL</h3>"
                 if len(name) == 0:
                     print "No names found"

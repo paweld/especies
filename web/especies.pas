@@ -50,8 +50,8 @@ type
     GBIF_URL: string;
     constructor Create;
     procedure Search(const searchStr: string; var key: integer;
-      var scientificname, status, valid_name, kingdom, phylum, classe,
-      order, family: string);
+      var scientificname, authorship, status, valid_name, kingdom,
+      phylum, classe, order, family: string);
     function Count(key: integer): integer;
   end;
 
@@ -75,7 +75,7 @@ type
     constructor Create;
     destructor Destroy; override;
     function Snippet(const searchStr: string): string;
-    function Images(const searchStr: string; limit: integer): TStringList;
+    function Images(const searchStr: string; limit: integer = 10): TStringList;
   end;
 
   TFFSearch = class(TObject) { Search FiveFilters }
@@ -84,7 +84,7 @@ type
     Lines: TStringList;
     constructor Create;
     destructor Destroy; override;
-    function termExtract(const contextStr: string; limit: integer): TStringList;
+    function termExtract(const contextStr: string; limit: integer = 10): TStringList;
   end;
 
   TPubMedSearch = class(TObject) { Search PubMed }
@@ -93,13 +93,13 @@ type
     references: TStringList;
     constructor Create;
     destructor Destroy; override;
-    function Search(const searchStr: string; limit: integer): TStringList;
+    function Search(const searchStr: string; limit: integer = 10): TStringList;
   end;
 
 var
   queryStr: string;
-  scientificname, status, valid_name, kingdom, phylum, classe, order,
-  family, taxon_list: string;
+  scientificname, authorship, status, valid_name, kingdom, phylum,
+  classe, order, family, taxon_list: string;
   division, commonname, snippet: string;
   urlWiki, tag, tagHTML, refUrl, taxUrl, urlId, UrlNuc, urlProt, itemStr: string;
   key, taxId, nucNum, protNum: integer;
@@ -119,31 +119,41 @@ var
   end;
 
   procedure TGBIFSearch.Search(const searchStr: string; var key: integer;
-  var scientificname, status, valid_name, kingdom, phylum, classe,
-    order, family: string);
+  var scientificname, authorship, status, valid_name, kingdom, phylum,
+    classe, order, family: string);
   var
     JsonData: TJsonData;
   begin
     try
       try
         JsonData := GetJson(TFPHTTPClient.SimpleGet(GBIF_URL +
-          '/species/?name=' + StringReplace(queryStr, ' ', '%20', [rfReplaceAll])));
+          '/species/?name=' + StringReplace(searchStr, ' ', '%20', [rfReplaceAll])));
         key := JsonData.FindPath('results[0].key').AsInteger;
-        scientificname := JsonData.FindPath('results[0].scientificName').AsString;
-        //author := JsonData.FindPath('results[0].authorship').AsString;
+        scientificname := JsonData.FindPath('results[0].canonicalName').AsString;
+        authorship := JsonData.FindPath('results[0].authorship').AsString;
         status := JsonData.FindPath('results[0].taxonomicStatus').AsString;
         status := LowerCase(StringReplace(status, '_', ' ', [rfReplaceAll]));
         if status <> 'accepted' then
-          valid_name := JsonData.FindPath('results[0].accepted').AsString;
+          valid_name := JsonData.FindPath('results[0].species').AsString;
         kingdom := JsonData.FindPath('results[0].kingdom').AsString;
         phylum := JsonData.FindPath('results[0].phylum').AsString;
         classe := JsonData.FindPath('results[0].class').AsString;
         order := JsonData.FindPath('results[0].order').AsString;
         family := JsonData.Findpath('results[0].family').AsString;
       except
-        on E: Exception do
+        {on E: Exception do
           WriteLn('<h3><font color="red">Error fetching classification data from CoL: ',
-            E.ClassName, #13#10, E.Message, '</font></h3>');
+            E.ClassName, #13#10, E.Message, '</font></h3>');}
+        key := 0;
+        scientificname := '';
+        authorship := '';
+        status := '';
+        valid_name := '';
+        kingdom := '';
+        phylum := '';
+        classe := '';
+        order := '';
+        family := '';
       end;
     finally
       JsonData.Free;
@@ -160,7 +170,7 @@ var
         JsonData := GetJson(TFPHTTPClient.SimpleGet(GBIF_URL +
           '/occurrence/search?taxonKey=' + IntToStr(key)));
         nrecs := JsonData.FindPath('count').AsInteger;
-		Result := nrecs;
+        Result := nrecs;
       except
         on E: Exception do
           WriteLn('<h3><font color="red">Error fetching number of records from GBIF: ',
@@ -199,7 +209,7 @@ var
     try
       try
         XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esearch.fcgi?db=taxonomy&term=' +
-          StringReplace(queryStr, ' ', '+', [rfReplaceAll]));
+          StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
         AssignFile(outfile, 'temp.xml');
         Rewrite(outfile);
         WriteLn(outfile, XmlData);
@@ -234,8 +244,8 @@ var
 
         { Get nucleotide sequences }
         XmlData := TFPHTTPClient.SimpleGet(NCBI_URL +
-          'esearch.fcgi?db=nucleotide&term=' + StringReplace(queryStr,
-          ' ', '+', [rfReplaceAll]));
+          'esearch.fcgi?db=nucleotide&term=' +
+          StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
         AssignFile(outfile, 'temp.xml');
         Rewrite(outfile);
         WriteLn(outfile, XmlData);
@@ -246,7 +256,7 @@ var
 
         { Get protein sequences }
         XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esearch.fcgi?db=protein&term=' +
-          StringReplace(queryStr, ' ', '+', [rfReplaceAll]));
+          StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
         AssignFile(outfile, 'temp.xml');
         Rewrite(outfile);
         WriteLn(outfile, XmlData);
@@ -255,9 +265,14 @@ var
         protNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
           Doc.DocumentElement).AsText));
       except
-        on E: Exception do
+        {on E: Exception do
           WriteLn('<h3><font color="red">Error fetching biomolecular data from NCBI: ',
-            E.ClassName, #13#10, E.Message, '</font></h3>');
+            E.ClassName, #13#10, E.Message, '</font></h3>');}
+        id := 0;
+        division := '';
+        scientificName := '';
+        nucNum := 0;
+        protNum := 0;
       end;
     finally
       Result.Free;
@@ -293,11 +308,12 @@ var
           for i := 0 to NodeSet1.Count - 1 do
             results.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
               '|' + string(TDomElement(NodeSet2.Items[i]).TextContent));
-		Result := results;	  
+        Result := results;
       except
-        on E: Exception do
+        {on E: Exception do
           WriteLn('<h3><font color="red">Error fetching links from NCBI: ',
-            E.ClassName, #13#10, E.Message, '</font></h3>');
+            E.ClassName, #13#10, E.Message, '</font></h3>');}
+        Result := nil;
       end;
     finally
       Result1.Free;
@@ -331,47 +347,58 @@ var
         { Allow redirections }
         Client.AllowRedirect := True;
         JsonData := GetJson(Client.Get(WIKIPEDIA_URL +
-          StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
-		Result := JsonData.FindPath('extract').AsString;  
+          StringReplace(searchStr, ' ', '_', [rfReplaceAll])));
+        Result := JsonData.FindPath('extract').AsString;
       except
-        on E: Exception do
+        {on E: Exception do
           WriteLn('<h3><font color="red">Error fetching text snippet from Wikipedia: ',
-            E.ClassName, #13#10, E.Message, '</font></h3>');
+            E.ClassName, #13#10, E.Message, '</font></h3>');}
+        Result := '';
       end;
     finally
+      JsonData.Free;
       Client.Free;
     end;
-	JsonData.Free; 
   end;
 
   { Search images from Wikimedia Commons }
-  function TWikiSearch.Images(const searchStr: string; limit: integer): TStringList;
+  function TWikiSearch.Images(const searchStr: string; limit: integer = 10): TStringList;
   var
     JsonData, JsonItem, JsonItems: TJsonData;
     Client: TFPHttpClient;
-    i: integer;
+    i, Count: integer;
+    ext: string;
   begin
     try
       try
         Client := TFPHttpClient.Create(nil);
         Client.AllowRedirect := True;
         JsonData := GetJson(Client.Get(WIKIMEDIA_URL +
-          StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
-        Client.Free;
+          StringReplace(searchStr, ' ', '_', [rfReplaceAll])));
         JsonItems := JsonData.FindPath('items');
-        for i := 0 to limit - 1 do
+        Count := 0;
+        for i := 0 to JsonItems.Count - 1 do
         begin
           JsonItem := JsonItems.Items[i];
-          candidates.Add(JsonItem.FindPath('title').AsString);
+          ext := ExtractFileExt(JsonItem.FindPath('title').AsString);
+          if (ext = '.jpg') then
+          begin
+            candidates.Add(JsonItem.FindPath('title').AsString);
+            Inc(Count);
+            if Count >= limit then
+              break;
+          end;
         end;
-		Result := candidates;
+        Result := candidates;
       except
-        on E: Exception do
+        {on E: Exception do
           WriteLn('<h3><font color="red">Error fetching images from Wikimedia: ',
-            E.ClassName, #13#10, E.Message, '</font></h3>');
+            E.ClassName, #13#10, E.Message, '</font></h3>');}
+        candidates := nil;
       end;
     finally
       JsonData.Free;
+      Client.Free;
     end;
   end;
 
@@ -394,7 +421,7 @@ var
   { Provides a list of significant words or phrases extracted from a larger content from FiveFilters Web service }
 
   function TFFSearch.termExtract(const contextStr: string;
-    limit: integer): TStringList;
+    limit: integer = 10): TStringList;
   var
     XmlData: ansistring;
     outfile: TextFile;
@@ -409,11 +436,12 @@ var
         WriteLn(outfile, XmlData);
         CloseFile(outfile);
         Lines.LoadFromFile('temp.txt');
-		Result := Lines;
+        Result := Lines;
       except
-        on E: Exception do
+        {on E: Exception do
           WriteLn('<h3><font color="red">Error fetching keywords from FiveFilters: ',
-            E.ClassName, #13#10, E.Message, '</font></h3>');
+            E.ClassName, #13#10, E.Message, '</font></h3>');}
+        Result := nil;
       end;
     finally
     end;
@@ -435,7 +463,8 @@ var
     inherited Destroy;
   end;
 
-  function TPubMedSearch.Search(const searchStr: string; limit: integer): TStringList;
+  function TPubMedSearch.Search(const searchStr: string;
+    limit: integer = 10): TStringList;
   var
     XmlData: ansistring;
     Doc: TXMLDocument;
@@ -443,6 +472,7 @@ var
     Result1, Result2: TXPathVariable;
     NodeSet1, NodeSet2, Ids: TNodeSet;
     id: string;
+	i: integer;
   begin
     try
       try
@@ -480,14 +510,21 @@ var
         NodeSet1 := Result1.AsNodeSet;
         NodeSet2 := Result2.AsNodeSet;
         if NodeSet1.Count > 0 then
+        begin
           for i := 0 to NodeSet1.Count - 1 do
-            references.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
-              '=' + string(TDomElement(NodeSet2.Items[i]).TextContent));
-		Result := references;	  
+            try
+              references.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
+                '=' + string(TDomElement(NodeSet2.Items[i]).TextContent));
+            except
+              continue;
+            end;
+        end;
+        Result := references;
       except
-        on E: Exception do
+        {on E: Exception do
           WriteLn('<h3><font color="red">Error fetching references from PubMed: ',
-            E.ClassName, #13#10, E.Message, '</font></h3>');
+            E.ClassName, #13#10, E.Message, '</font></h3>');}
+        Result := nil;
       end;
     finally
       Result1.Free;
@@ -534,12 +571,17 @@ begin
   end;
 
   GBIFSearch := TGBIFSearch.Create;
-  GBIFSearch.Search(queryStr, key, scientificname, status, valid_name,
+  GBIFSearch.Search(queryStr, key, scientificname, authorship, status, valid_name,
     kingdom, phylum, classe, order, family);
-  if status <> 'accepted' then
-    status := status + ' of ' + valid_name;
-  taxon_list := kingdom + ';' + phylum + ';' + classe + ';' + order + ';' + family;
-  WriteLn('<h2>' + scientificname + ' (' + status + ')</h2>');
+  if (Length(status) > 0) then
+  begin
+    if status <> 'accepted' then
+      status := ' (' + status + ' of <i>' + valid_name + '</i>' + ' ' + authorship + ')'
+    else
+      status := ' (' + status + ')';
+  end;
+  taxon_list := kingdom + '; ' + phylum + '; ' + classe + '; ' + order + '; ' + family;
+  WriteLn('<h2><i>' + queryStr + '</i>' + ' ' + authorship + status + '</h2>');
   WriteLn('<h3>Classification from CoL</h3>');
   if Length(scientificname) = 0 then
     WriteLn('No names found')
@@ -607,11 +649,10 @@ begin
     itemStr := linkOut.ValueFromIndex[i];
     if linkIn.IndexOf(itemStr) < 0 then
     begin
-      WriteLn('<li><a href="' + linkOut.Names[i], '">', linkOut.ValueFromIndex[i] +
-        '</a></li>');
+      WriteLn('<li><a href="' + linkOut.Names[i] + '">' +
+        linkOut.ValueFromIndex[i] + '</a></li>');
       linkIn.Append(itemStr);
     end;
-
   end;
   linkIn.Free;
   WriteLn('</ul>');
@@ -647,8 +688,8 @@ begin
 
   WriteLn('<h3>Articles from PubMed</h3>');
   PubMedSearch := TPubMedSearch.Create;
-  pubs := PubMedSearch.Search(queryStr, 10);
-  if pubs.Count = 0 then
+  pubs := PubMedSearch.Search(queryStr);
+  if (pubs = nil) or (pubs.Count = 0) then
     WriteLn('No articles found')
   else
   begin
