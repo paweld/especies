@@ -19,37 +19,29 @@
 {  Requirements:                                                                }
 {     Free Pascal Compiler 3.0+ (www.freepascal.org)                            }
 {     Lazarus IDE 2.0+ (www.lazarus.freepascal.org)                             }
-{     CEF4Delphi 113.3.5+ (www.briskbard.com/index.php?lang=en&pageid=cef)      }
+{     HtmlViewer 10.2+ (wiki.freepascal.org/THtmlPort)                          }
 {                                                                               }
 {  REVISION HISTORY:                                                            }
-{    Version 1.00, 27th Jul 23 - Initial public release                         }
+{    Version 1.00, 29th Jul 23 - Initial public release                         }
 {===============================================================================}
 
 unit main;
 
 {$mode objfpc}{$H+}
-{$I cef.inc}
 
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls,
-  Dialogs, ExtCtrls, StdCtrls, Buttons,
-  StrUtils, fpjson, jsonparser,
-  openssl, opensslsockets, LCLIntf,
-  GlobalCefApplication,
-  uCEFLazarusCocoa, // required for Cocoa
-  uCEFTypes, uCEFInterfaces,
-  uCEFWorkScheduler, uCEFBrowserWindow,
-  uCEFChromium, uCEFChromiumEvents;
+  Classes, SysUtils, Forms, Controls, Dialogs, ExtCtrls, StdCtrls,
+  Buttons, StrUtils, fphttpclient, fpjson, jsonparser, openssl, opensslsockets,
+  LCLIntf, ComCtrls, HtmlView, HtmlGlobals, HTMLUn2;
 
 type
 
   { TMainForm }
 
   TMainForm = class(TForm)
-    BrowserWindow: TBrowserWindow;
-    Chromium: TChromium;
+    HtmlViewer: THtmlViewer;
     SearchComboBox: TComboBox;
     SearchButton: TButton;
     ClearButton: TButton;
@@ -59,28 +51,20 @@ type
     AboutButton: TSpeedButton;
     ReloadButton: TSpeedButton;
     HomeButton: TSpeedButton;
-    procedure BrowserWindowBrowserClosed(Sender: TObject);
-    procedure BrowserWindowBrowserCreated(Sender: TObject);
-    procedure AboutBtnClick(Sender: TObject);
-    procedure ChromiumBeforePopup(Sender: TObject; const browser: ICefBrowser;
-      const frame: ICefFrame; const targetUrl, targetFrameName: ustring;
-      targetDisposition: TCefWindowOpenDisposition; userGesture: boolean;
-      const popupFeatures: TCefPopupFeatures; var windowInfo: TCefWindowInfo;
-      var client: ICefClient; var settings: TCefBrowserSettings;
-      var extra_info: ICefDictionaryValue; var noJavascriptAccess: boolean;
-      var Result: boolean);
-    procedure ChromiumOpenUrlFromTab(Sender: TObject; const browser: ICefBrowser;
-      const frame: ICefFrame; const targetUrl: ustring;
-      targetDisposition: TCefWindowOpenDisposition; userGesture: boolean;
-      out Result: boolean);
+    StatusBar: TStatusBar;
+    procedure AboutButtonClick(Sender: TObject);
     procedure ClearButtonClick(Sender: TObject);
     procedure ExitBtnClick(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
-    procedure AboutButtonClick(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure HomeButtonClick(Sender: TObject);
+    procedure HtmlViewerHotSpotClick(Sender: TObject; const SRC: ThtString;
+      var Handled: boolean);
+    procedure HtmlViewerHotSpotCovered(Sender: TObject; const SRC: ThtString);
+    procedure HtmlViewerImageRequest(Sender: TObject; const SRC: ThtString;
+      var Stream: TStream);
     procedure ReloadButtonClick(Sender: TObject);
     procedure SearchButtonClick(Sender: TObject);
     procedure SearchComboBoxEditingDone(Sender: TObject);
@@ -94,13 +78,12 @@ var
   MainForm: TMainForm;
   queryStr: string;
   Results: TStringList;
-  CEFVersion: string;
 
 implementation
 
 {$R *.lfm}
 
-uses about, BioWS, uCEFApplication;
+uses about, BioWS;
 
 function FindString(const SearchKey: string; SearchList: TStrings): integer;
 var
@@ -125,17 +108,28 @@ begin
     Result := -1;
 end;
 
+function GetUrlAs(Url: string; AsName: string): boolean;
+begin
+  Result := False;
+  with TFPHttpClient.Create(nil) do
+  begin
+    AddHeader('User-Agent',
+      'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:18.0) Gecko/20100101 Firefox/18.0');
+    AllowRedirect := True;
+    if (ExtractFilePath(AsName) <> '') then
+      if not DirectoryExists(ExtractFilePath(AsName)) then
+        if not ForceDirectories(ExtractFilePath(AsName)) then
+          Exit;
+    try
+      Get(Url, AsName);
+      Result := True;
+    finally
+      Free;
+    end;
+  end;
+end;
+
 { TMainForm }
-
-procedure TMainForm.BrowserWindowBrowserClosed(Sender: TObject);
-begin
-  Close;
-end;
-
-procedure TMainForm.BrowserWindowBrowserCreated(Sender: TObject);
-begin
-  Caption := Application.Title;
-end;
 
 procedure TMainForm.DoSearch(const queryStr: string);
 var
@@ -152,6 +146,8 @@ var
   FFSearch: TFFSearch;
   PubMedSearch: TPubMedSearch;
 begin
+  Application.ProcessMessages;
+  Sleep(1000);
   Screen.Cursor := crHourGlass;
   Results.Clear;
   Results.Add('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">');
@@ -159,15 +155,18 @@ begin
   Results.Add('<head>');
   Results.Add('<title>e-Species search results for ' + queryStr + '</title>');
   Results.Add('<link rel="stylesheet" type="text/css" href="' +
-    ExtractFilePath(ParamStr(0)) + '/static/stylesheet.css">');
+    ExtractFilePath(ParamStr(0)) + './static/stylesheet.css">');
   Results.Add('</head>');
   Results.Add('<body bgcolor="#ffffff">');
   Results.Add('<h1><img src="' + ExtractFilePath(ParamStr(0)) +
-    '/static/especies.png" height="73" width="385"></h1>');
+    './static/especies.png" height="73" width="385"></h1>');
   Results.Add('<h3>A taxonomically intelligent biodiversity search engine</h3>');
   Results.Add(
     '<p>Search biological databases for a taxonomic name. The search is done "on the fly" using web services (JSON/XML) or URL API''s.</p>');
 
+  Application.ProcessMessages;
+  Sleep(1000);
+  StatusBar.SimpleText := 'Fetching taxonomic data from CoL...';
   GBIFSearch := TGBIFSearch.Create;
   GBIFSearch.Search(queryStr, key, scientificname, authorship, status, valid_name,
     kingdom, phylum, classe, order, family);
@@ -188,8 +187,12 @@ begin
   nrecs := GBIFSearch.Count(key);
   GBIFSearch.Destroy;
 
+  Application.ProcessMessages;
+  StatusBar.SimpleText := 'Fetching content from Wikipedia...';
   WikiSearch := TWikiSearch.Create;
   snippet := WikiSearch.Snippet(queryStr);
+  Application.ProcessMessages;
+  StatusBar.SimpleText := 'Building keyword list...';
   FFSearch := TFFSearch.Create;
   tags := FFSearch.termExtract(snippet, 10);
   tagHTML := '';
@@ -216,6 +219,8 @@ begin
     Results.Add('<p><a href="' + urlWiki + '">Original article</a></p>');
   end;
 
+  Application.ProcessMessages;
+  StatusBar.SimpleText := 'Fetching genomic data from NCBI...';
   Results.Add('<h3>Genomics from NCBI</h3>');
   NCBISearch := TNCBISearch.Create;
   NCBISearch.Summary(queryStr, taxId, division, scientificname,
@@ -256,6 +261,8 @@ begin
   Results.Add('</ul>');
   NCBISearch.Destroy;
 
+  Application.ProcessMessages;
+  StatusBar.SimpleText := 'Fetching distribution dara from GBIF...';
   Results.Add('<h3>Map from GBIF</h3>');
   if key = 0 then
     Results.Add('No species found')
@@ -269,6 +276,8 @@ begin
       '&resolution=2" height="56%" width="56%" frameborder="1"/></iframe></a>');
   end;
 
+  Application.ProcessMessages;
+  StatusBar.SimpleText := 'Fetching images from Wikimedia Commons...';
   Results.Add('<h3>Images from Wikimedia Commons</h3>');
   imgs := WikiSearch.Images(queryStr, 5);
   if imgs.Count = 0 then
@@ -279,12 +288,15 @@ begin
     begin
       refUrl := '<a href="http://en.wikipedia.org/wiki/' + imgs[i] + '">';
       Results.Add(refUrl +
-        '<img src="http://commons.wikimedia.org/wiki/Special:Filepath/' +
+        //'<img src="http://commons.wikimedia.org/wiki/Special:Filepath/' +
+        '<img src="./pictures/' +
         ExtractDelimited(2, imgs[i], [':']) + '" width=94 height=145 border=1></a>');
     end;
   end;
   WikiSearch.Destroy;
 
+  Application.ProcessMessages;
+  StatusBar.SimpleText := 'Fetching articles from PubMed...';
   Results.Add('<h3>Articles from PubMed</h3>');
   PubMedSearch := TPubMedSearch.Create;
   pubs := PubMedSearch.Search(queryStr);
@@ -301,13 +313,15 @@ begin
   end;
   PubMedSearch.Destroy;
 
+  Application.ProcessMessages;
+  StatusBar.SimpleText := 'Ready';
   Results.Add(
     '<br><p align="left"><small><small>&copy; 2008-2023 </small><a href="http://github.com/maurobio/"><small>Mauro J. Cavalcanti</small></a></small></p>');
   Results.Add('</body>');
   Results.Add('</html>');
   Screen.Cursor := crDefault;
   Results.SaveToFile(GetAppConfigDir(False) + 'results.html');
-  BrowserWindow.LoadURL('file:///' + GetAppConfigDir(False) + 'results.html');
+  HtmlViewer.LoadFromString(Results.Text);
 end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
@@ -326,49 +340,22 @@ begin
   Close;
 end;
 
-procedure TMainForm.AboutBtnClick(Sender: TObject);
-begin
-  AboutForm.ShowModal;
-end;
-
-procedure TMainForm.ChromiumBeforePopup(Sender: TObject;
-  const browser: ICefBrowser; const frame: ICefFrame;
-  const targetUrl, targetFrameName: ustring;
-  targetDisposition: TCefWindowOpenDisposition; userGesture: boolean;
-  const popupFeatures: TCefPopupFeatures; var windowInfo: TCefWindowInfo;
-  var client: ICefClient; var settings: TCefBrowserSettings;
-  var extra_info: ICefDictionaryValue; var noJavascriptAccess: boolean;
-  var Result: boolean);
-begin
-  // For simplicity, this demo blocks all popup windows and new tabs
-  Result := (targetDisposition in [WOD_NEW_FOREGROUND_TAB, WOD_NEW_BACKGROUND_TAB,
-    WOD_NEW_POPUP, WOD_NEW_WINDOW]);
-end;
-
-procedure TMainForm.ChromiumOpenUrlFromTab(Sender: TObject;
-  const browser: ICefBrowser; const frame: ICefFrame; const targetUrl: ustring;
-  targetDisposition: TCefWindowOpenDisposition; userGesture: boolean;
-  out Result: boolean);
-begin
-  // For simplicity, this demo blocks all popup windows and new tabs
-  Result := (targetDisposition in [WOD_NEW_FOREGROUND_TAB, WOD_NEW_BACKGROUND_TAB,
-    WOD_NEW_POPUP, WOD_NEW_WINDOW]);
-end;
-
 procedure TMainForm.ClearButtonClick(Sender: TObject);
 begin
   SearchComboBox.Text := '';
   SearchComboBox.Items.Clear;
 end;
 
+procedure TMainForm.AboutButtonClick(Sender: TObject);
+begin
+  AboutForm.ShowModal;
+end;
+
 procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
   if MessageDlg('Confirmation', 'Are you sure you want to exit the program?',
     mtConfirmation, [mbYes, mbNo], 0) = mrYes then
-  begin
-    BrowserWindow.CloseBrowser(True);
-    CanClose := BrowserWindow.IsClosed; // True;
-  end
+    CanClose := True
   else
     CanClose := False;
 end;
@@ -380,27 +367,44 @@ begin
   Results.Free;
 end;
 
-procedure TMainForm.AboutButtonClick(Sender: TObject);
-begin
-  AboutForm.ShowModal;
-end;
-
 procedure TMainForm.FormShow(Sender: TObject);
 begin
-  Screen.Cursor := crHourGlass;
-  BrowserWindow.LoadURL('file:///static/index.htm');
-  Screen.Cursor := crDefault;
+  HtmlViewer.LoadFromFile('./static/index.htm');
 end;
 
 procedure TMainForm.HomeButtonClick(Sender: TObject);
 begin
-  BrowserWindow.LoadURL('file:///static/index.htm');
+  HtmlViewer.LoadFromFile('./static/index.htm');
+end;
+
+procedure TMainForm.HtmlViewerHotSpotClick(Sender: TObject;
+  const SRC: ThtString; var Handled: boolean);
+begin
+  if Pos('http', SRC) > 0 then
+    OpenURL(SRC);
+end;
+
+procedure TMainForm.HtmlViewerHotSpotCovered(Sender: TObject; const SRC: ThtString);
+
+begin
+  StatusBar.SimpleText := SRC;
+end;
+
+procedure TMainForm.HtmlViewerImageRequest(Sender: TObject;
+  const SRC: ThtString; var Stream: TStream);
+var
+  TargetDir: string;
+begin
+  TargetDir := IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(GetCurrentDir) +
+    'pictures');
+  if Pos('http', SRC) > 0 then
+    GetUrlAs(SRC, TargetDir + ExtractFileName(SRC));
 end;
 
 procedure TMainForm.ReloadButtonClick(Sender: TObject);
 begin
   if FileExists(GetAppConfigDir(False) + 'results.html') then
-    BrowserWindow.LoadURL('file:///' + GetAppConfigDir(False) + 'results.html');
+    HtmlViewer.LoadFromFile(GetAppConfigDir(False) + 'results.html');
 end;
 
 procedure TMainForm.SearchButtonClick(Sender: TObject);
@@ -431,43 +435,5 @@ begin
       SearchComboBox.Items.Add(SearchComboBox.Text);
   end;
 end;
-
-initialization
-  {$IFDEF DARWIN}// $IFDEF MACOSX
-  AddCrDelegate;
-  {$ENDIF}
-  if GlobalCEFApp = nil then
-  begin
-    CreateGlobalCEFApp;
-
-    CEFVersion := GlobalCEFApp.LibCefVersion;
-    GlobalCEFApp.CheckCEFFiles := False;
-    GlobalCEFApp.FrameworkDirPath :=
-      IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'cef' + PathDelim;
-    //GlobalCEFApp.ResourcesDirPath :=
-    //  IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) +
-    //  'resources' + PathDelim;
-    GlobalCEFApp.LocalesDirPath :=
-      IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'locales' + PathDelim;
-    GlobalCEFApp.EnableGPU := True;      // Enable hardware acceleration
-    //GlobalCEFApp.cache := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) +
-    //  'cache' + PathDelim;
-    GlobalCEFApp.UserDataPath :=
-      IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'static' + PathDelim;
-
-    if not GlobalCEFApp.StartMainProcess then
-    begin
-      DestroyGlobalCEFApp;
-      DestroyGlobalCEFWorkScheduler;
-      Halt(0); // exit the subprocess
-    end;
-  end;
-
-finalization
-  (* Destroy from this unit, which is used after "Interfaces". So this happens before the Application object is destroyed *)
-  if GlobalCEFWorkScheduler <> nil then
-    GlobalCEFWorkScheduler.StopScheduler;
-  DestroyGlobalCEFApp;
-  DestroyGlobalCEFWorkScheduler;
 
 end.

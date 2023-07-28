@@ -234,12 +234,4 @@ object AboutForm: TAboutForm
     ParentColor = False
     ParentFont = False
   end
-  object ChromiumLabel: TLabel
-    Left = 84
-    Height = 15
-    Top = 220
-    Width = 186
-    Caption = 'Chromium Embedded Framework: '
-    ParentColor = False
-  end
 end

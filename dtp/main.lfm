@@ -16,17 +16,6 @@ object MainForm: TMainForm
   Position = poDesktopCenter
   ShowHint = True
   LCLVersion = '2.0.12.0'
-  object BrowserWindow: TBrowserWindow
-    Left = 0
-    Height = 488
-    Hint = '|Ready'
-    Top = 32
-    Width = 777
-    Align = alClient
-    TabOrder = 1
-    OnBrowserCreated = BrowserWindowBrowserCreated
-    OnBrowserClosed = BrowserWindowBrowserClosed
-  end
   object Panel: TPanel
     Left = 0
     Height = 32
@@ -111,6 +100,36 @@ object MainForm: TMainForm
       ImageIndex = 0
       OnClick = HomeButtonClick
     end
+  end
+  object StatusBar: TStatusBar
+    Left = 0
+    Height = 23
+    Hint = 'Ready'
+    Top = 497
+    Width = 777
+    AutoHint = True
+    Panels = <>
+    SizeGrip = False
+  end
+  object HtmlViewer: THtmlViewer
+    Left = 0
+    Height = 465
+    Hint = '|Ready'
+    Top = 32
+    Width = 777
+    BorderStyle = htFocused
+    HistoryMaxCount = 0
+    NoSelect = False
+    PrintMarginBottom = 2
+    PrintMarginLeft = 2
+    PrintMarginRight = 2
+    PrintMarginTop = 2
+    PrintScale = 1
+    OnHotSpotClick = HtmlViewerHotSpotClick
+    OnHotSpotCovered = HtmlViewerHotSpotCovered
+    OnImageRequest = HtmlViewerImageRequest
+    Align = alClient
+    TabOrder = 2
   end
   object ImageList: TImageList
     Left = 680
@@ -214,11 +233,5 @@ object MainForm: TMainForm
       000000000000000000000000000000000000000000000000000000000000AAAA
       AA18000000000000000000000000
     }
-  end
-  object Chromium: TChromium
-    OnBeforePopup = ChromiumBeforePopup
-    OnOpenUrlFromTab = ChromiumOpenUrlFromTab
-    Left = 635
-    Top = 72
   end
 end
