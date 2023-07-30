@@ -30,19 +30,13 @@
       <FormatVersion Value="2"/>
       <Modes Count="0"/>
     </RunParams>
-    <RequiredPackages Count="4">
+    <RequiredPackages Count="2">
       <Item1>
-        <PackageName Value="CEF4Delphi_Lazarus"/>
+        <PackageName Value="FrameViewer09"/>
       </Item1>
       <Item2>
-        <PackageName Value="FrameViewer09"/>
-      </Item2>
-      <Item3>
-        <PackageName Value="TurboPowerIPro"/>
-      </Item3>
-      <Item4>
         <PackageName Value="LCL"/>
-      </Item4>
+      </Item2>
     </RequiredPackages>
     <Units Count="3">
       <Unit0>
