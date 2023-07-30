@@ -2,7 +2,7 @@
 
 A taxonomically intelligent biodiversity search engine
 
-This is a pure Python/Free Pascal CGI-based implementation of a taxonomically intelligent species search engine. It searches biological databases for a taxonomic name. The search is done "on the fly" using web services (JSON/XML) or URL API's.
+This is a pure Free Pascal/Python implementation of a taxonomically intelligent species search engine. It searches biological databases for a taxonomic name. The search is done "on the fly" using web services (JSON/XML) or URL API's.
 
 e-Species aggregates information from multiple sources, as follows:
 
@@ -12,3 +12,10 @@ e-Species aggregates information from multiple sources, as follows:
  - Displays distribution maps from the Global Biodiversity Information Facility for the taxon name
  - Gets up to five images for the taxon name from Wikimedia Commons 
  - Extracts bibliographic references for the taxon from PubMed
+
+There  are three different implementations of e-Species, all of them partially using the same codebase:
+
+- A Web-based version, using the CGI protocol, which runs on the Apache web server
+- A desktop-based version, which runs on MS-Windows and GNU/Linux personal computers
+- A mobile-based app, which runs on Android cellphones and tablets (***under development***)
+
