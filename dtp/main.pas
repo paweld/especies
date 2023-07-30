@@ -22,7 +22,7 @@
 {     HtmlViewer 10.2+ (wiki.freepascal.org/THtmlPort)                          }
 {                                                                               }
 {  REVISION HISTORY:                                                            }
-{    Version 1.00, 29th Jul 23 - Initial public release                         }
+{    Version 1.00, 30th Jul 23 - Initial public release                         }
 {===============================================================================}
 
 unit main;
@@ -33,8 +33,9 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Dialogs, ExtCtrls, StdCtrls,
-  Buttons, StrUtils, fphttpclient, fpjson, jsonparser, openssl, opensslsockets,
-  LCLIntf, ComCtrls, HtmlView, HtmlGlobals, HTMLUn2;
+  Buttons, StrUtils, FileUtil, fphttpclient, fpjson, jsonparser, openssl,
+  opensslsockets, LCLIntf, ComCtrls, HtmlView, HtmlGlobals, HTMLUn2, Graphics,
+  fpImage, fpreadpng, fpwritepng;
 
 type
 
@@ -63,8 +64,6 @@ type
     procedure HtmlViewerHotSpotClick(Sender: TObject; const SRC: ThtString;
       var Handled: boolean);
     procedure HtmlViewerHotSpotCovered(Sender: TObject; const SRC: ThtString);
-    procedure HtmlViewerImageRequest(Sender: TObject; const SRC: ThtString;
-      var Stream: TStream);
     procedure ReloadButtonClick(Sender: TObject);
     procedure SearchButtonClick(Sender: TObject);
     procedure SearchComboBoxEditingDone(Sender: TObject);
@@ -112,20 +111,53 @@ function GetUrlAs(Url: string; AsName: string): boolean;
 begin
   Result := False;
   with TFPHttpClient.Create(nil) do
-  begin
-    AddHeader('User-Agent',
-      'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:18.0) Gecko/20100101 Firefox/18.0');
-    AllowRedirect := True;
-    if (ExtractFilePath(AsName) <> '') then
-      if not DirectoryExists(ExtractFilePath(AsName)) then
-        if not ForceDirectories(ExtractFilePath(AsName)) then
-          Exit;
     try
-      Get(Url, AsName);
-      Result := True;
-    finally
-      Free;
+      AddHeader('User-Agent',
+        'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:18.0) Gecko/20100101 Firefox/18.0');
+      AllowRedirect := True;
+      if (ExtractFilePath(AsName) <> '') then
+        if not DirectoryExists(ExtractFilePath(AsName)) then
+          if not ForceDirectories(ExtractFilePath(AsName)) then
+            Exit;
+      try
+        Get(Url, AsName);
+        Result := True;
+      finally
+        Free;
+      end;
+    except
+      on E: Exception do
+        MessageDlg('Error', 'Failed to download image.', mtError, [mbOK], 0);
     end;
+end;
+
+function MergeImages(baseImageFile, overlayFile, resultFile: string): boolean;
+var
+  baseImg, ovrImg: TFPCustomImage;
+  x, y: integer;
+begin
+  Result := True;
+  baseImg := TFPMemoryImage.Create(1, 1);
+  try
+    baseImg.LoadFromFile(baseImageFile);
+    ovrImg := TFPMemoryImage.Create(1, 1);
+    try
+      ovrImg.LoadFromFile(overlayFile);
+      if (baseImg.Width <> ovrImg.Width) or (baseImg.Height <> ovrImg.Height) then
+      begin
+        MessageDlg('Error', 'Both images have different size.', mtError, [mbOK], 0);
+        Result := False;
+        Halt(0);
+      end;
+      for y := 0 to baseImg.Height - 1 do
+        for x := 0 to baseImg.Width - 1 do
+          baseImg.Colors[x, y] := AlphaBlend(baseImg.Colors[x, y], ovrImg.Colors[x, y]);
+      baseImg.SaveToFile(resultFile);
+    finally
+      ovrImg.Free;
+    end;
+  finally
+    baseImg.Free;
   end;
 end;
 
@@ -136,7 +168,9 @@ var
   scientificname, authorship, status, valid_name, kingdom, phylum,
   classe, order, family, taxon_list: string;
   division, commonname, snippet: string;
-  urlWiki, tagWord, tagHTML, refUrl, taxUrl, urlId, UrlNuc, urlProt, itemStr: string;
+  urlWiki, tagWord, tagHTML, refUrl, imgUrl, taxUrl, urlId, UrlNuc,
+  urlProt, itemStr, baseMapUrl, pointsUrl: string;
+  targetDir: string;
   key, taxId, nucNum, protNum: integer;
   i, nrecs: integer;
   linkOut, linkIn, imgs, tags, pubs: TStringList;
@@ -147,25 +181,21 @@ var
   PubMedSearch: TPubMedSearch;
 begin
   Application.ProcessMessages;
-  Sleep(1000);
   Screen.Cursor := crHourGlass;
   Results.Clear;
   Results.Add('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">');
   Results.Add('<html>');
   Results.Add('<head>');
   Results.Add('<title>e-Species search results for ' + queryStr + '</title>');
-  Results.Add('<link rel="stylesheet" type="text/css" href="' +
-    ExtractFilePath(ParamStr(0)) + './static/stylesheet.css">');
+  Results.Add('<link rel="stylesheet" type="text/css" href="./static/stylesheet.css">');
   Results.Add('</head>');
   Results.Add('<body bgcolor="#ffffff">');
-  Results.Add('<h1><img src="' + ExtractFilePath(ParamStr(0)) +
-    './static/especies.png" height="73" width="385"></h1>');
+  Results.Add('<h1><img src="./static/especies.png" height="73" width="385"></h1>');
   Results.Add('<h3>A taxonomically intelligent biodiversity search engine</h3>');
   Results.Add(
     '<p>Search biological databases for a taxonomic name. The search is done "on the fly" using web services (JSON/XML) or URL API''s.</p>');
 
   Application.ProcessMessages;
-  Sleep(1000);
   StatusBar.SimpleText := 'Fetching taxonomic data from CoL...';
   GBIFSearch := TGBIFSearch.Create;
   GBIFSearch.Search(queryStr, key, scientificname, authorship, status, valid_name,
@@ -261,6 +291,8 @@ begin
   Results.Add('</ul>');
   NCBISearch.Destroy;
 
+  targetDir := IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(
+    GetAppConfigDir(False)) + 'pictures');
   Application.ProcessMessages;
   StatusBar.SimpleText := 'Fetching distribution dara from GBIF...';
   Results.Add('<h3>Map from GBIF</h3>');
@@ -268,12 +300,22 @@ begin
     Results.Add('No species found')
   else
   begin
+    baseMapUrl := 'https://tile.gbif.org/3857/omt/0/0/0@1x.png?style=gbif-classic';
+    pointsUrl :=
+      'https://api.gbif.org/v2/map/occurrence/density/0/0/0@1x.png?style=classic.point&taxonKey='
+      + IntToStr(key);
+    GetUrlAs(baseMapUrl, targetDir + 'basemap.png');
+    GetUrlAs(pointsUrl, targetDir + 'points.png');
+    MergeImages(targetDir + 'basemap.png', targetDir + 'points.png',
+      targetDir + IntToStr(key) + '.png');
     taxUrl := '<a href=http://gbif.org/species/' + IntToStr(key) + '>';
     Results.Add('<p>' + taxUrl + IntToStr(nrecs) + ' record(s)</a></p>');
     Results.Add(taxUrl +
-      '<iframe id="mapByFrame" name="map" src="http://cdn.gbif.org/v1/map/index.html?type=TAXON&key='
-      + IntToStr(key) +
-      '&resolution=2" height="56%" width="56%" frameborder="1"/></iframe></a>');
+      //'<iframe id="mapByFrame" name="map" src="http://cdn.gbif.org/v1/map/index.html?type=TAXON&key='
+      //+ IntToStr(key) +
+      //'&resolution=2" height="56%" width="56%" frameborder="1"/></iframe></a>');
+      '<img src="./pictures/' + IntToStr(key) + '.png"' +
+      ' height="56%" width="56%" border=1/></a>');
   end;
 
   Application.ProcessMessages;
@@ -286,11 +328,14 @@ begin
   begin
     for i := 0 to imgs.Count - 1 do
     begin
+      imgUrl := 'http://commons.wikimedia.org/wiki/Special:Filepath/' +
+        ExtractDelimited(2, imgs[i], [':']);
+      GetUrlAs(imgUrl, targetDir + ExtractFileName(imgUrl));
       refUrl := '<a href="http://en.wikipedia.org/wiki/' + imgs[i] + '">';
       Results.Add(refUrl +
         //'<img src="http://commons.wikimedia.org/wiki/Special:Filepath/' +
-        '<img src="./pictures/' +
-        ExtractDelimited(2, imgs[i], [':']) + '" width=94 height=145 border=1></a>');
+        '<img src="./pictures/' + ExtractDelimited(2, imgs[i], [':']) +
+        '" width=94 height=145 border=1></a>');
     end;
   end;
   WikiSearch.Destroy;
@@ -321,18 +366,32 @@ begin
   Results.Add('</html>');
   Screen.Cursor := crDefault;
   Results.SaveToFile(GetAppConfigDir(False) + 'results.html');
-  HtmlViewer.LoadFromString(Results.Text);
+  //HtmlViewer.LoadFromString(Results.Text);
+  HtmlViewer.LoadFromFile(GetAppConfigDir(False) + 'results.html');
 end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
+var
+  sourcePath: string;
+  targetPath: string;
 begin
   InitSSLInterface;
   Results := TStringList.Create;
   if not DirectoryExists(GetAppConfigDir(False)) then
+  begin
     if not CreateDir(GetAppConfigDir(False)) then
+    begin
       MessageDlg('Error', 'Failed to create data directory.', mtError, [mbOK], 0);
+      Halt(0);
+    end;
+  end;
   if FileExists(GetAppConfigDir(False) + 'searchlist.txt') then
     SearchComboBox.Items.LoadFromFile(GetAppConfigDir(False) + 'searchlist.txt');
+  CreateDir(GetAppConfigDir(False) + IncludeTrailingPathDelimiter('static'));
+  CopyFile('static' + PathDelim + 'especies.png', GetAppConfigDir(False) +
+    PathDelim + 'static' + PathDelim + 'especies.png');
+  CopyFile('static' + PathDelim + 'stylesheet.css', GetAppConfigDir(False) +
+    PathDelim + 'static' + PathDelim + 'stylesheet.css');
 end;
 
 procedure TMainForm.ExitBtnClick(Sender: TObject);
@@ -388,17 +447,6 @@ procedure TMainForm.HtmlViewerHotSpotCovered(Sender: TObject; const SRC: ThtStri
 
 begin
   StatusBar.SimpleText := SRC;
-end;
-
-procedure TMainForm.HtmlViewerImageRequest(Sender: TObject;
-  const SRC: ThtString; var Stream: TStream);
-var
-  TargetDir: string;
-begin
-  TargetDir := IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(GetCurrentDir) +
-    'pictures');
-  if Pos('http', SRC) > 0 then
-    GetUrlAs(SRC, TargetDir + ExtractFileName(SRC));
 end;
 
 procedure TMainForm.ReloadButtonClick(Sender: TObject);

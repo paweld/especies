@@ -127,7 +127,6 @@ object MainForm: TMainForm
     PrintScale = 1
     OnHotSpotClick = HtmlViewerHotSpotClick
     OnHotSpotCovered = HtmlViewerHotSpotCovered
-    OnImageRequest = HtmlViewerImageRequest
     Align = alClient
     TabOrder = 2
   end
