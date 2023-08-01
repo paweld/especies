@@ -23,6 +23,8 @@
 {                                                                               }
 {  REVISION HISTORY:                                                            }
 {    Version 1.00, 30th Jul 23 - Initial public release                         }
+{    Version 1.01,  1st Aug 23 - Fixed a bug which prevented some required      }
+{                                files not being found in Linux version         }
 {===============================================================================}
 
 unit main;
@@ -34,7 +36,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Dialogs, ExtCtrls, StdCtrls,
   Buttons, StrUtils, FileUtil, fphttpclient, fpjson, jsonparser, openssl,
-  opensslsockets, LCLIntf, ComCtrls, HtmlView, HtmlGlobals, HTMLUn2, Graphics,
+  opensslsockets, LCLIntf, ComCtrls, HtmlView, HtmlGlobals, Graphics,
   fpImage, fpreadpng, fpwritepng;
 
 type
@@ -308,6 +310,8 @@ begin
     GetUrlAs(pointsUrl, targetDir + 'points.png');
     MergeImages(targetDir + 'basemap.png', targetDir + 'points.png',
       targetDir + IntToStr(key) + '.png');
+    DeleteFile(targetDir + 'basemap.png');
+    DeleteFile(targetDir + 'points.png');
     taxUrl := '<a href=http://gbif.org/species/' + IntToStr(key) + '>';
     Results.Add('<p>' + taxUrl + IntToStr(nrecs) + ' record(s)</a></p>');
     Results.Add(taxUrl +
@@ -385,13 +389,22 @@ begin
       Halt(0);
     end;
   end;
+  if not DirectoryExists(GetAppConfigDir(False) +
+    IncludeTrailingPathDelimiter('static')) then
+  begin
+    if not CreateDir(GetAppConfigDir(False) +
+      IncludeTrailingPathDelimiter('static')) then
+    begin
+      MessageDlg('Error', 'Failed to create data directory.', mtError, [mbOK], 0);
+      Halt(0);
+    end;
+    CopyFile('static' + PathDelim + 'especies.png', GetAppConfigDir(False) +
+      PathDelim + 'static' + PathDelim + 'especies.png');
+    CopyFile('static' + PathDelim + 'stylesheet.css', GetAppConfigDir(False) +
+      PathDelim + 'static' + PathDelim + 'stylesheet.css');
+  end;
   if FileExists(GetAppConfigDir(False) + 'searchlist.txt') then
     SearchComboBox.Items.LoadFromFile(GetAppConfigDir(False) + 'searchlist.txt');
-  CreateDir(GetAppConfigDir(False) + IncludeTrailingPathDelimiter('static'));
-  CopyFile('static' + PathDelim + 'especies.png', GetAppConfigDir(False) +
-    PathDelim + 'static' + PathDelim + 'especies.png');
-  CopyFile('static' + PathDelim + 'stylesheet.css', GetAppConfigDir(False) +
-    PathDelim + 'static' + PathDelim + 'stylesheet.css');
 end;
 
 procedure TMainForm.ExitBtnClick(Sender: TObject);
@@ -427,13 +440,19 @@ begin
 end;
 
 procedure TMainForm.FormShow(Sender: TObject);
+var
+  AppPath: string;
 begin
-  HtmlViewer.LoadFromFile('./static/index.htm');
+  AppPath := ExtractFilePath(Application.ExeName);
+  HtmlViewer.LoadFromFile(AppPath + '/static/index.htm');
 end;
 
 procedure TMainForm.HomeButtonClick(Sender: TObject);
+var
+  AppPath: string;
 begin
-  HtmlViewer.LoadFromFile('./static/index.htm');
+  AppPath := ExtractFilePath(Application.ExeName);
+  HtmlViewer.LoadFromFile(AppPath + '/static/index.htm');
 end;
 
 procedure TMainForm.HtmlViewerHotSpotClick(Sender: TObject;
@@ -469,6 +488,7 @@ begin
   begin
     queryStr := SearchComboBox.Text;
     DoSearch(queryStr);
+    HTMLView.SetFocus;
   end;
 end;
 
