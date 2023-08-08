@@ -25,6 +25,7 @@
 {    Version 1.00, 30th Jul 23 - Initial public release                         }
 {    Version 1.01,  1st Aug 23 - Fixed a bug which prevented some required      }
 {                                files not being found in Linux version         }
+{    Version 1.02,  5th Aug 23 - Added a test to detect an internet connection  }
 {===============================================================================}
 
 unit main;
@@ -163,6 +164,30 @@ begin
   end;
 end;
 
+function IsOnline(reliableserver: string = 'http://www.google.com'): boolean;
+var
+  http: tfphttpclient;
+  httpstate: integer;
+begin
+  Result := False;
+  try
+    http := tfphttpclient.Create(nil);
+    try
+      http.Get(reliableserver);
+      httpstate := http.ResponseStatusCode;
+      if httpstate = 200 then
+        Result := True
+      else
+        Result := False;
+    except
+      on E: Exception do
+        Result := False;
+    end;
+  finally
+    http.Free;
+  end;
+end;
+
 { TMainForm }
 
 procedure TMainForm.DoSearch(const queryStr: string);
@@ -182,6 +207,11 @@ var
   FFSearch: TFFSearch;
   PubMedSearch: TPubMedSearch;
 begin
+  if not IsOnline then
+  begin
+    MessageDlg('Error', 'No internet connection', mtError, [mbOK], 0);
+    Exit;
+  end;
   Application.ProcessMessages;
   Screen.Cursor := crHourGlass;
   Results.Clear;
@@ -488,7 +518,6 @@ begin
   begin
     queryStr := SearchComboBox.Text;
     DoSearch(queryStr);
-    HTMLView.SetFocus;
   end;
 end;
 

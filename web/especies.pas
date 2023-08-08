@@ -172,9 +172,10 @@ var
         nrecs := JsonData.FindPath('count').AsInteger;
         Result := nrecs;
       except
-        on E: Exception do
+        {on E: Exception do
           WriteLn('<h3><font color="red">Error fetching number of records from GBIF: ',
-            E.ClassName, #13#10, E.Message, '</font></h3>');
+            E.ClassName, #13#10, E.Message, '</font></h3>');}
+		Result := 0;	
       end;
     finally
       JsonData.Free;
@@ -327,6 +328,7 @@ var
   begin
     WIKIPEDIA_URL := 'https://en.wikipedia.org/api/rest_v1/page/summary/';
     WIKIMEDIA_URL := 'https://en.wikipedia.org/api/rest_v1/page/media-list/';
+	{WIKIPEDIA_REDIRECT_URL := 'https://en.wikipedia.org/w/api.php?action=query&titles=';}
     candidates := TStringList.Create;
   end;
 
@@ -360,6 +362,28 @@ var
       Client.Free;
     end;
   end;
+  
+(* function TWikiSearch.Snippet(const searchStr: string): string;
+var
+  JsonData: TJsonData;
+begin
+  try
+    try
+      { Allow redirections }
+      JsonData := GetJSON(TFPHTTPClient.SimpleGet(WIKIPEDIA_REDIRECT_URL +
+        StringReplace(queryStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
+      if JsonData.FindPath('query.redirects[0].to') <> nil then
+        queryStr := JsonData.FindPath('query.redirects[0].to').AsString;
+      JsonData := GetJson(TFPHTTPClient.SimpleGet(WIKIPEDIA_URL +
+        StringReplace(searchStr, ' ', '_', [rfReplaceAll])));
+      Result := JsonData.FindPath('extract').AsString;
+    except
+      Result := '';
+    end;
+  finally
+    JsonData.Free;
+  end;
+end; *)
 
   { Search images from Wikimedia Commons }
   function TWikiSearch.Images(const searchStr: string; limit: integer = 10): TStringList;
@@ -401,6 +425,43 @@ var
       Client.Free;
     end;
   end;
+  
+(*function TWikiSearch.Images(const searchStr: string; limit: integer = 10): TStringList;
+var
+  JsonData, JsonItem, JsonItems: TJsonData;
+  i, Count: integer;
+  ext: string;
+begin
+  try
+    try
+      JsonData := GetJSON(TFPHTTPClient.SimpleGet(WIKIPEDIA_REDIRECT_URL +
+        StringReplace(queryStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
+      if JsonData.FindPath('query.redirects[0].to') <> nil then
+        queryStr := JsonData.FindPath('query.redirects[0].to').AsString;
+      JsonData := GetJson(TFHTTPClient.SimpleGet(WIKIMEDIA_URL +
+        StringReplace(searchStr, ' ', '_', [rfReplaceAll])));
+      JsonItems := JsonData.FindPath('items');
+      Count := 0;
+      for i := 0 to JsonItems.Count - 1 do
+      begin
+        JsonItem := JsonItems.Items[i];
+        ext := ExtractFileExt(JsonItem.FindPath('title').AsString);
+        if (ext = '.jpg') then
+        begin
+          candidates.Add(JsonItem.FindPath('title').AsString);
+          Inc(Count);
+          if Count >= limit then
+            break;
+        end;
+      end;
+      Result := candidates;
+    except
+      candidates := nil;
+    end;
+  finally
+    JsonData.Free;
+  end;
+end;*)  
 
   { TFFSearch methods }
 

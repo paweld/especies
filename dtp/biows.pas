@@ -301,7 +301,7 @@ constructor TWikiSearch.Create;
 begin
   WIKIPEDIA_URL := 'https://en.wikipedia.org/api/rest_v1/page/summary/';
   WIKIMEDIA_URL := 'https://en.wikipedia.org/api/rest_v1/page/media-list/';
-  WIKIPEDIA_REDIRECT_URL := 'https://en.wikipedia.org/w/api.php?action=query&titles=';
+  {WIKIPEDIA_REDIRECT_URL := 'https://en.wikipedia.org/w/api.php?action=query&titles=';}
   candidates := TStringList.Create;
 end;
 
