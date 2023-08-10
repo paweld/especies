@@ -264,7 +264,7 @@ begin
     tagWord := tags[i];
     tagWord := StringReplace(tagWord, ' ', '&nbsp;', [rfReplaceAll]);
     tagHTML := tagHTML +
-      '<span style=''display:inline;border:1px solid blue; padding:1px;margin:2px;line-height:22px;background-color:rgb(181,213,255);''>'
+      '<span style=''display:inline;border:1px solid blue;padding:1px;margin:2px;line-height:22px;background-color:rgb(181,213,255);''>'
       + tagWord + ' ' + '</span>';
   end;
   Results.Add(tagHTML);

@@ -323,7 +323,7 @@ begin
       Client.AllowRedirect := True;
       JsonData := GetJson(Client.Get(WIKIPEDIA_URL +
         StringReplace(searchStr, ' ', '_', [rfReplaceAll])));
-      Result := JsonData.FindPath('extract').AsString;
+      Result := JsonData.FindPath('extract').AsUnicodeString;
     except
       Result := '';
     end;
@@ -346,7 +346,7 @@ begin
         queryStr := JsonData.FindPath('query.redirects[0].to').AsString;
       JsonData := GetJson(TFPHTTPClient.SimpleGet(WIKIPEDIA_URL +
         StringReplace(searchStr, ' ', '_', [rfReplaceAll])));
-      Result := JsonData.FindPath('extract').AsString;
+      Result := JsonData.FindPath('extract').AsUnicodeString;
     except
       Result := '';
     end;
