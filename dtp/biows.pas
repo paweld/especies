@@ -25,6 +25,7 @@
 unit BioWS;
 
 {$mode objfpc}{$H+}
+{$define WIKIPEDIA_REDIRECT}
 
 interface
 
@@ -111,8 +112,13 @@ var
 begin
   try
     try
+	  {$ifdef ANDROID}
+	  JsonData := GetJson(jHttpClient.Get(GBIF_URL +
+        '/species/?name=' + StringReplace(searchStr, ' ', '%20', [rfReplaceAll])));
+	  {$else}
       JsonData := GetJson(TFPHTTPClient.SimpleGet(GBIF_URL +
         '/species/?name=' + StringReplace(searchStr, ' ', '%20', [rfReplaceAll])));
+	  {$endif}
       key := JsonData.FindPath('results[0].key').AsInteger;
       scientificname := JsonData.FindPath('results[0].canonicalName').AsString;
       authorship := JsonData.FindPath('results[0].authorship').AsString;
@@ -149,8 +155,13 @@ var
 begin
   try
     try
+	  {$ifdef ANDROID}
+	  JsonData := GetJson(jHttpClient.Get(GBIF_URL +
+        '/occurrence/search?taxonKey=' + IntToStr(key)));
+	  {$else}
       JsonData := GetJson(TFPHTTPClient.SimpleGet(GBIF_URL +
         '/occurrence/search?taxonKey=' + IntToStr(key)));
+	  {$endif}
       nrecs := JsonData.FindPath('count').AsInteger;
       Result := nrecs;
     except
@@ -188,8 +199,13 @@ var
 begin
   try
     try
+	  {$ifdef ANDROID}
+	  XmlData := jHttpClient.Get(NCBI_URL + 'esearch.fcgi?db=taxonomy&term=' +
+        StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+	  {$else}
       XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esearch.fcgi?db=taxonomy&term=' +
         StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+	  {$endif}	
       AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
       Rewrite(outfile);
       WriteLn(outfile, XmlData);
@@ -201,8 +217,13 @@ begin
         Doc.DocumentElement);
       id := StrToInt(string(Result.AsText));
 
+	  {$ifdef ANDROID}
+	  XmlData := jHttpClient.Get(NCBI_URL + 'esummary.fcgi?db=taxonomy&id=' +
+        IntToStr(Id) + '&retmode=xml');
+	  {$else}
       XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esummary.fcgi?db=taxonomy&id=' +
         IntToStr(Id) + '&retmode=xml');
+	  {$endif}	
       AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
       Rewrite(outfile);
       WriteLn(outfile, XmlData);
@@ -223,9 +244,15 @@ begin
       commonname := string(Result.AsText);
 
       { Get nucleotide sequences }
+	  {$ifdef ANDROID}
+	  XmlData := jHttpClient.Get(NCBI_URL +
+        'esearch.fcgi?db=nucleotide&term=' +
+        StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+	  {$else}
       XmlData := TFPHTTPClient.SimpleGet(NCBI_URL +
         'esearch.fcgi?db=nucleotide&term=' +
         StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+	  {$endif}	
       AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
       Rewrite(outfile);
       WriteLn(outfile, XmlData);
@@ -235,8 +262,13 @@ begin
         Doc.DocumentElement).AsText));
 
       { Get protein sequences }
+	  {$ifdef ANDROID}
+	  XmlData := jHttpClient.Get(NCBI_URL + 'esearch.fcgi?db=protein&term=' +
+        StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+	  {$else}
       XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'esearch.fcgi?db=protein&term=' +
         StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+	  {$endif}	
       AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
       Rewrite(outfile);
       WriteLn(outfile, XmlData);
@@ -269,8 +301,13 @@ begin
   { Get list of links }
   try
     try
-      XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'elink.fcgi?dbfrom=taxonomy&id=' +
+      {$ifdef ANDROID}
+	  XmlData := jHttpClient.Get(NCBI_URL + 'elink.fcgi?dbfrom=taxonomy&id=' +
         IntToStr(id) + '&cmd=llinkslib');
+	  {$else}
+	  XmlData := TFPHTTPClient.SimpleGet(NCBI_URL + 'elink.fcgi?dbfrom=taxonomy&id=' +
+        IntToStr(id) + '&cmd=llinkslib');
+	  {$endif}	
       AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
       Rewrite(outfile);
       WriteLn(outfile, XmlData);
@@ -301,7 +338,9 @@ constructor TWikiSearch.Create;
 begin
   WIKIPEDIA_URL := 'https://en.wikipedia.org/api/rest_v1/page/summary/';
   WIKIMEDIA_URL := 'https://en.wikipedia.org/api/rest_v1/page/media-list/';
-  {WIKIPEDIA_REDIRECT_URL := 'https://en.wikipedia.org/w/api.php?action=query&titles=';}
+  {$ifdef WIKIPEDIA_REDIRECT}
+  WIKIPEDIA_REDIRECT_URL := 'https://en.wikipedia.org/w/api.php?action=query&titles=';
+  {$endif}
   candidates := TStringList.Create;
 end;
 
@@ -311,6 +350,7 @@ begin
   inherited Destroy;
 end;
 
+{$ifndef WIKIPEDIA_REDIRECT}
 function TWikiSearch.Snippet(const searchStr: string): string;
 var
   JsonData: TJsonData;
@@ -332,20 +372,31 @@ begin
     Client.Free;
   end;
 end;
-
-(* function TWikiSearch.Snippet(const searchStr: string): string;
+{$else}
+function TWikiSearch.Snippet(const searchStr: string): string;
 var
   JsonData: TJsonData;
+  queryStr: string;
 begin
   try
     try
       { Allow redirections }
+	  {$ifdef ANDROID}
+	  JsonData := GetJSON(jHttpClient.Get(WIKIPEDIA_REDIRECT_URL +
+        StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
+	  {$else}
       JsonData := GetJSON(TFPHTTPClient.SimpleGet(WIKIPEDIA_REDIRECT_URL +
-        StringReplace(queryStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
+        StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
+	  {$endif}	
       if JsonData.FindPath('query.redirects[0].to') <> nil then
         queryStr := JsonData.FindPath('query.redirects[0].to').AsString;
+	  {$ifdef ANDROID}
+	  JsonData := GetJson(jHttpClient.Get(WIKIPEDIA_URL +
+        StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
+      {$else}	  
       JsonData := GetJson(TFPHTTPClient.SimpleGet(WIKIPEDIA_URL +
-        StringReplace(searchStr, ' ', '_', [rfReplaceAll])));
+        StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
+	  {$endif}	
       Result := JsonData.FindPath('extract').AsUnicodeString;
     except
       Result := '';
@@ -353,8 +404,10 @@ begin
   finally
     JsonData.Free;
   end;
-end; *)
+end;
+{$endif}
 
+{$ifndef WIKIPEDIA_REDIRECT}
 { Search images from Wikimedia Commons }
 function TWikiSearch.Images(const searchStr: string; limit: integer = 10): TStringList;
 var
@@ -392,21 +445,31 @@ begin
     Client.Free;
   end;
 end;
-
-(*function TWikiSearch.Images(const searchStr: string; limit: integer = 10): TStringList;
+{$else}
+function TWikiSearch.Images(const searchStr: string; limit: integer = 10): TStringList;
 var
   JsonData, JsonItem, JsonItems: TJsonData;
   i, Count: integer;
-  ext: string;
+  queryStr, ext: string;
 begin
   try
     try
+	  {$ifdef ANDROID}
+	  JsonData := GetJSON(jHttpClient.Get(WIKIPEDIA_REDIRECT_URL +
+        StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
+	  {$else}
       JsonData := GetJSON(TFPHTTPClient.SimpleGet(WIKIPEDIA_REDIRECT_URL +
-        StringReplace(queryStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
+        StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
+	  {$endif}	
       if JsonData.FindPath('query.redirects[0].to') <> nil then
         queryStr := JsonData.FindPath('query.redirects[0].to').AsString;
-      JsonData := GetJson(TFHTTPClient.SimpleGet(WIKIMEDIA_URL +
-        StringReplace(searchStr, ' ', '_', [rfReplaceAll])));
+	  {$ifdef ANDROID}
+	  JsonData := GetJson(jHttpClient.Get(WIKIMEDIA_URL +
+        StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
+      {$else}	  
+      JsonData := GetJson(TFPHTTPClient.SimpleGet(WIKIMEDIA_URL +
+        StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
+	  {$endif}	
       JsonItems := JsonData.FindPath('items');
       Count := 0;
       for i := 0 to JsonItems.Count - 1 do
@@ -428,7 +491,8 @@ begin
   finally
     JsonData.Free;
   end;
-end;*)
+end;
+{$endif}
 
 { TFFSearch methods }
 
@@ -456,9 +520,15 @@ var
 begin
   try
     try
+	  {$ifdef ANDROID}
+	  XmlData := JhTTPClient.Get(FF_URL + 'extract.php?text=' +
+        StringReplace(contextStr, ' ', '+', [rfReplaceAll]) +
+        '&output=txt&max=' + IntToStr(limit));
+	  {$else}
       XmlData := TFPHTTPClient.SimpleGet(FF_URL + 'extract.php?text=' +
         StringReplace(contextStr, ' ', '+', [rfReplaceAll]) +
         '&output=txt&max=' + IntToStr(limit));
+	  {$endif}	
       AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.txt');
       Rewrite(outfile);
       WriteLn(outfile, XmlData);
@@ -501,9 +571,15 @@ var
 begin
   try
     try
+	  {$ifdef ANDROID}
+	  XmlData := jHttpClient.Get(PUBMED_URL +
+        'esearch.fcgi?db=pubmed&retmax=' + IntToStr(limit) +
+        '&sort=relevance&term=' + StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+	  {$else}
       XmlData := TFPHTTPClient.SimpleGet(PUBMED_URL +
         'esearch.fcgi?db=pubmed&retmax=' + IntToStr(limit) +
         '&sort=relevance&term=' + StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
+	  {$endif}	
       AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
       Rewrite(outfile);
       WriteLn(outfile, XmlData);
@@ -519,8 +595,13 @@ begin
         for i := 0 to Ids.Count - 1 do
           id := id + string(TDomElement(Ids.Items[i]).TextContent) + ',';
 
+      {$ifdef ANDROID}
+	  XmlData := jHttpClient.Get(PUBMED_URL + 'efetch.fcgi?db=pubmed&id=' +
+        id + '&retmode=xml');
+	  {$else}
       XmlData := TFPHTTPClient.SimpleGet(PUBMED_URL + 'efetch.fcgi?db=pubmed&id=' +
         id + '&retmode=xml');
+	  {$endif}	
       AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
       Rewrite(outfile);
       WriteLn(outfile, XmlData);
