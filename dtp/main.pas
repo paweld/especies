@@ -26,6 +26,10 @@
 {    Version 1.01,  1st Aug 23 - Fixed a bug which prevented some required      }
 {                                files not being found in Linux version         }
 {    Version 1.02,  5th Aug 23 - Added a test to detect an internet connection  }
+{    Version 1.03, 11th Aug 23 - Fixed a bug which sometimes caused the program }
+{                                to crash when handling non-Unicode strings     }
+{    Version 1.04, 12th Aug 23 - Changed the code for retrieving data from      }
+{                                Wikipedia                                      }
 {===============================================================================}
 
 unit main;
@@ -493,7 +497,6 @@ begin
 end;
 
 procedure TMainForm.HtmlViewerHotSpotCovered(Sender: TObject; const SRC: ThtString);
-
 begin
   StatusBar.SimpleText := SRC;
 end;
