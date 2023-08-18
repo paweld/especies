@@ -80,6 +80,10 @@
 #                                references                                      #
 #    Version 1.50  19th Jul 23 - Added italics to scientific names in taxon      #
 #                                classification output                           #
+#    Version 1.60  18th Aug 23 - Added a missing space between scienfic name     #
+#                                and authorship                                  #   
+#                                Fixed a bug which sometimes caused an error     #
+#                                when listing references from PubMed             #
 #================================================================================#
 
 import cgi
@@ -346,7 +350,7 @@ if __name__ == '__main__':
                         status = " (" + status + " of <i>" + valid_name + "</i>" + ") " + author
                     else:
                         status = " (" + status + ")"
-                print "<h2><i>" + queryStr + "</i>" + author + status + "</h2>"
+                print "<h2><i>" + queryStr + "</i> " + author + status + "</h2>"
                 print "<h3>Classification from CoL</h3>"
                 if len(name) == 0:
                     print "No names found"
@@ -418,8 +422,9 @@ if __name__ == '__main__':
                     print "No articles found"
                 else:	
                     for pub in pubs.keys():
-                        print "<hr noshade>"
-                        print "<b><a href='" + pub + "'>" + pubs[pub] + "</a></b><br>"
+                        if pubs[pub] != None:
+                            print "<hr noshade>"
+                            print "<b><a href='" + pub + "'>" + pubs[pub] + "</a></b><br>"
         else:
             print "<title>e-Species</title>"
             print "<h3>Error filling out form</h3>"
