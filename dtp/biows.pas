@@ -1,28 +1,28 @@
-{================================================================================}
-{                             B i o W S   Library                                }
-{                                                                                }
-{       A General-Purpose Library of Routines for Fetching Data From Several     }
-{                       Online Biodiversity Databases                            }
-{                                                                                }
-{                            Version 1.0, July 2023                              }
-{                            Version 2.0, August 2023                            }
-{                                                                                }
-{             Author: Mauro J. Cavalcanti, Rio de Janeiro, BRASIL                }
-{                          E-mail: <maurobio@gmail.com>                          }
-{                                                                                }
-{  This program is free software; you can redistribute it and/or modify          }
-{  it under the terms of the GNU General Public License as published by          }
-{  the Free Software Foundation; either version 3 of the License, or             }
-{  (at your option) any later version.                                           }
-{                                                                                }
-{  This program is distributed in the hope that it will be useful,               }
-{  but WITHOUT ANY WARRANTY; without even the implied warranty of                }
-{  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the                  }
-{  GNU General Public License for more details.                                  }
-{                                                                                }
-{  You should have received a copy of the GNU General Public License             }
-{  along with this program. If not, see <http://www.gnu.org/licenses/>.          }
-{================================================================================}
+{===============================================================================}
+{                             B i o W S   Library                               }
+{                                                                               }
+{       A General-Purpose Library of Routines for Fetching Data From Several    }
+{                       Online Biodiversity Databases                           }
+{                                                                               }
+{                            Version 1.0, July 2023                             }
+{                            Version 2.0, August 2023                           }
+{                                                                               }
+{             Author: Mauro J. Cavalcanti, Rio de Janeiro, BRASIL               }
+{                          E-mail: <maurobio@gmail.com>                         }
+{                                                                               }
+{  This program is free software; you can redistribute it and/or modify         }
+{  it under the terms of the GNU General Public License as published by         }
+{  the Free Software Foundation; either version 3 of the License, or            }
+{  (at your option) any later version.                                          }
+{                                                                               }
+{  This program is distributed in the hope that it will be useful,              }
+{  but WITHOUT ANY WARRANTY; without even the implied warranty of               }
+{  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the                 }
+{  GNU General Public License for more details.                                 }
+{                                                                               }
+{  You should have received a copy of the GNU General Public License            }
+{  along with this program. If not, see <http://www.gnu.org/licenses/>.         }
+{===============================================================================}
 unit BioWS;
 
 {$mode objfpc}{$H+}
@@ -33,14 +33,9 @@ uses
   Classes,
   SysUtils,
   StrUtils,
-  {$ifdef ANDROID}
-  AndroidWidget,
-  Laz_And_Controls,
-  {$else}
   fphttpclient,
   openssl,
   opensslsockets,
-  {$endif}
   fpjson,
   jsonparser,
   DOM,
@@ -114,19 +109,10 @@ procedure TGBIFSearch.Search(const searchStr: string; var key: integer;
   classe, order, family: string);
 var
   JsonData: TJsonData;
-  {$ifndef ANDROID}
   Client: TFPHttpClient;
-  {$else}
-  Client: jHttpClient;
-  {$endif}
 begin
   try
-      {$ifndef ANDROID}
     Client := TFPHttpClient.Create(nil);
-  {$else}
-    Client := jHttpClient.Create(nil);
-  {$endif}
-
     try
       JsonData := GetJson(Client.Get(GBIF_URL + '/species/?name=' +
         StringReplace(searchStr, ' ', '%20', [rfReplaceAll])));
@@ -163,19 +149,11 @@ end;
 function TGBIFSearch.Count(key: integer): integer;
 var
   JsonData: TJsonData;
-  {$ifndef ANDROID}
   Client: TFPHttpClient;
-  {$else}
-  Client: jHttpClient;
-  {$endif}
   nrecs: integer;
 begin
   try
-    {$ifndef ANDROID}
     Client := TFPHttpClient.Create(nil);
-    {$else}
-    Client := jHttpClient.Create(nil);
-    {$endif}
     try
       JsonData := GetJson(Client.Get(GBIF_URL + '/occurrence/search?taxonKey=' +
         IntToStr(key)));
@@ -201,8 +179,6 @@ end;
 
 destructor TNCBISearch.Destroy;
 begin
-  if FileExists(GetTempDir(False) + PathDelim + 'temp.xml') then
-    DeleteFile(GetTempDir(False) + PathDelim + 'temp.xml');
   results.Free;
   inherited Destroy;
 end;
@@ -212,41 +188,35 @@ procedure TNCBISearch.Summary(const searchStr: string; var id: integer;
 var
   XmlData: ansistring;
   Doc: TXMLDocument;
-  outfile: TextFile;
   Result: TXPathVariable;
-  {$ifndef ANDROID}
   Client: TFPHttpClient;
-  {$else}
-  Client: jHttpClient;
-  {$endif}
+  MemStrm: TMemoryStream;
 begin
   try
-      {$ifndef ANDROID}
     Client := TFPHttpClient.Create(nil);
-      {$else}
-    Client := jHttpClient.Create(nil);
-      {$endif}
     try
+      MemStrm := TMemoryStream.Create;
       XmlData := Client.Get(NCBI_URL + 'esearch.fcgi?db=taxonomy&term=' +
         StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
-      AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
-      Rewrite(outfile);
-      WriteLn(outfile, XmlData);
-      CloseFile(outfile);
-      ReadXMLFile(Doc, GetTempDir(False) + PathDelim + 'temp.xml');
+      if Length(XmlData) > 0 then
+        MemStrm.Write(XmlData[1], Length(XmlData));
+      MemStrm.Position := 0;
+      ReadXMLFile(Doc, MemStrm);
+      MemStrm.Free;
 
       { Get taxon id }
       Result := EvaluateXPathExpression('/eSearchResult/IdList/Id',
         Doc.DocumentElement);
       id := StrToInt(string(Result.AsText));
 
+      MemStrm := TMemoryStream.Create;
       XmlData := Client.Get(NCBI_URL + 'esummary.fcgi?db=taxonomy&id=' +
         IntToStr(Id) + '&retmode=xml');
-      AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
-      Rewrite(outfile);
-      WriteLn(outfile, XmlData);
-      CloseFile(outfile);
-      ReadXMLFile(Doc, GetTempDir(False) + PathDelim + 'temp.xml');
+      if Length(XmlData) > 0 then
+        MemStrm.Write(XmlData[1], Length(XmlData));
+      MemStrm.Position := 0;
+      ReadXMLFile(Doc, MemStrm);
+      MemStrm.Free;
 
       { Get summary data }
       Result := EvaluateXPathExpression(
@@ -262,24 +232,26 @@ begin
       commonname := string(Result.AsText);
 
       { Get nucleotide sequences }
+      MemStrm := TMemoryStream.Create;
       XmlData := Client.Get(NCBI_URL + 'esearch.fcgi?db=nucleotide&term=' +
         StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
-      AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
-      Rewrite(outfile);
-      WriteLn(outfile, XmlData);
-      CloseFile(outfile);
-      ReadXMLFile(Doc, GetTempDir(False) + PathDelim + 'temp.xml');
+      if Length(XmlData) > 0 then
+        MemStrm.Write(XmlData[1], Length(XmlData));
+      MemStrm.Position := 0;
+      ReadXMLFile(Doc, MemStrm);
+      MemStrm.Free;
       nucNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
         Doc.DocumentElement).AsText));
 
       { Get protein sequences }
+      MemStrm := TMemoryStream.Create;
       XmlData := Client.Get(NCBI_URL + 'esearch.fcgi?db=protein&term=' +
         StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
-      AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
-      Rewrite(outfile);
-      WriteLn(outfile, XmlData);
-      CloseFile(outfile);
-      ReadXMLFile(Doc, GetTempDir(False) + PathDelim + 'temp.xml');
+      if Length(XmlData) > 0 then
+        MemStrm.Write(XmlData[1], Length(XmlData));
+      MemStrm.Position := 0;
+      ReadXMLFile(Doc, MemStrm);
+      MemStrm.Free;
       protNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
         Doc.DocumentElement).AsText));
     except
@@ -300,31 +272,24 @@ function TNCBISearch.Links(id: integer): TStringList;
 var
   XmlData: ansistring;
   Doc: TXMLDocument;
-  outfile: TextFile;
   Result1, Result2: TXPathVariable;
   NodeSet1, NodeSet2: TNodeSet;
   i: integer;
-  {$ifndef ANDROID}
   Client: TFPHttpClient;
-  {$else}
-  Client: jHttpClient;
-  {$endif}
+  MemStrm: TMemoryStream;
 begin
   { Get list of links }
   try
-    {$ifndef ANDROID}
     Client := TFPHttpClient.Create(nil);
-      {$else}
-    Client := jHttpClient.Create(nil);
-      {$endif}
     try
+      MemStrm := TMemoryStream.Create;
       XmlData := Client.Get(NCBI_URL + 'elink.fcgi?dbfrom=taxonomy&id=' +
         IntToStr(id) + '&cmd=llinkslib');
-      AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
-      Rewrite(outfile);
-      WriteLn(outfile, XmlData);
-      CloseFile(outfile);
-      ReadXMLFile(Doc, GetTempDir(False) + PathDelim + 'temp.xml');
+      if Length(XmlData) > 0 then
+        MemStrm.Write(XmlData[1], Length(XmlData));
+      MemStrm.Position := 0;
+      ReadXMLFile(Doc, MemStrm);
+      MemStrm.Free;
       Result1 := EvaluateXPathExpression('//ObjUrl/Url', Doc.DocumentElement);
       Result2 := EvaluateXPathExpression('//ObjUrl/Provider/Name',
         Doc.DocumentElement);
@@ -387,18 +352,10 @@ function TWikiSearch.Snippet(const searchStr: string): string;
 var
   JsonData: TJsonData;
   queryStr: string;
-  {$ifndef ANDROID}
   Client: TFPHttpClient;
-  {$else}
-  Client: jHttpClient;
-  {$endif}
 begin
   try
-    {$ifndef ANDROID}
     Client := TFPHttpClient.Create(nil);
-      {$else}
-    Client := jHttpClient.Create(nil);
-      {$endif}
     try
       { Allow redirections }
       JsonData := GetJSON(Client.Get(WIKIPEDIA_REDIRECT_URL +
@@ -462,18 +419,10 @@ var
   JsonData, JsonItem, JsonItems: TJsonData;
   i, Count: integer;
   queryStr, ext: string;
-  {$ifndef ANDROID}
   Client: TFPHttpClient;
-  {$else}
-  Client: jHttpClient;
-  {$endif}
 begin
   try
-    {$ifndef ANDROID}
     Client := TFPHttpClient.Create(nil);
-      {$else}
-    Client := jHttpClient.Create(nil);
-      {$endif}
     try
       JsonData := GetJSON(Client.Get(WIKIPEDIA_REDIRECT_URL +
         StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
@@ -517,8 +466,6 @@ end;
 
 destructor TFFSearch.Destroy;
 begin
-  if FileExists(GetTempDir(False) + PathDelim + 'temp.txt') then
-    DeleteFile(GetTempDir(False) + PathDelim + 'temp.txt');
   Lines.Free;
   inherited Destroy;
 end;
@@ -528,35 +475,26 @@ end;
 function TFFSearch.termExtract(const contextStr: string;
   limit: integer = 10): TStringList;
 var
-  XmlData: ansistring;
-  outfile: TextFile;
-  {$ifndef ANDROID}
+  TextData: ansistring;
   Client: TFPHttpClient;
-  {$else}
-  Client: jHttpClient;
-  {$endif}
+  MemStrm: TMemoryStream;
 begin
   try
-    {$ifndef ANDROID}
     Client := TFPHttpClient.Create(nil);
-      {$else}
-    Client := jHttpClient.Create(nil);
-      {$endif}
     try
-      XmlData := Client.Get(FF_URL + 'extract.php?text=' +
+      MemStrm := TMemoryStream.Create;
+      TextData := Client.Get(FF_URL + 'extract.php?text=' +
         StringReplace(contextStr, ' ', '+', [rfReplaceAll]) +
         '&output=txt&max=' + IntToStr(limit));
-      AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.txt');
-      Rewrite(outfile);
-      WriteLn(outfile, XmlData);
-      CloseFile(outfile);
-      Lines.LoadFromFile(GetTempDir(False) + PathDelim + 'temp.txt');
+      Lines.Text := StringReplace(TextData, '\n', LineEnding,
+        [rfReplaceAll, rfIgnoreCase]);
       Result := Lines;
     except
       Result := nil;
     end;
   finally
     Client.Free;
+    MemStrm.Free;
   end;
 end;
 
@@ -570,8 +508,6 @@ end;
 
 destructor TPubMedSearch.Destroy;
 begin
-  if FileExists(GetTempDir(False) + PathDelim + 'temp.xml') then
-    DeleteFile(GetTempDir(False) + PathDelim + 'temp.xml');
   references.Free;
   inherited Destroy;
 end;
@@ -581,33 +517,26 @@ function TPubMedSearch.Search(const searchStr: string;
 var
   XmlData: ansistring;
   Doc: TXMLDocument;
-  outfile: TextFile;
   Result1, Result2: TXPathVariable;
   NodeSet1, NodeSet2, Ids: TNodeSet;
   id: string;
   i: integer;
-  {$ifndef ANDROID}
   Client: TFPHttpClient;
-  {$else}
-  Client: jHttpClient;
-  {$endif}
+  MemStrm: TMemoryStream;
 begin
   try
-    {$ifndef ANDROID}
     Client := TFPHttpClient.Create(nil);
-      {$else}
-    Client := jHttpClient.Create(nil);
-      {$endif}
     try
+      MemStrm := TMemoryStream.Create;
       XmlData := Client.Get(PUBMED_URL + 'esearch.fcgi?db=pubmed&retmax=' +
         IntToStr(limit) + '&sort=relevance&term=' +
         StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
 
-      AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
-      Rewrite(outfile);
-      WriteLn(outfile, XmlData);
-      CloseFile(outfile);
-      ReadXMLFile(Doc, GetTempDir(False) + PathDelim + 'temp.xml');
+      if Length(XmlData) > 0 then
+        MemStrm.Write(XmlData[1], Length(XmlData));
+      MemStrm.Position := 0;
+      ReadXMLFile(Doc, MemStrm);
+      MemStrm.Free;
 
       { Get reference ids }
       Result1 := EvaluateXPathExpression('/eSearchResult/IdList/Id',
@@ -618,13 +547,14 @@ begin
         for i := 0 to Ids.Count - 1 do
           id := id + string(TDomElement(Ids.Items[i]).TextContent) + ',';
 
+      MemStrm := TMemoryStream.Create;
       XmlData := Client.Get(PUBMED_URL + 'efetch.fcgi?db=pubmed&id=' +
         id + '&retmode=xml');
-      AssignFile(outfile, GetTempDir(False) + PathDelim + 'temp.xml');
-      Rewrite(outfile);
-      WriteLn(outfile, XmlData);
-      CloseFile(outfile);
-      ReadXMLFile(Doc, GetTempDir(False) + PathDelim + 'temp.xml');
+      if Length(XmlData) > 0 then
+        MemStrm.Write(XmlData[1], Length(XmlData));
+      MemStrm.Position := 0;
+      ReadXMLFile(Doc, MemStrm);
+      MemStrm.Free;
 
       { Get list of references }
       Result1 := EvaluateXPathExpression('//Article/ArticleTitle',

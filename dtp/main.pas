@@ -30,6 +30,8 @@
 {                                to crash when handling non-Unicode strings     }
 {    Version 1.04, 12th Aug 23 - Changed the code for retrieving data from      }
 {                                Wikipedia                                      }
+{    Version 1.05, 17th Aug 23 - Changed the code for retrieving data from      }
+{                                FiveFilters and NCBI                           }
 {===============================================================================}
 
 unit main;
@@ -267,9 +269,10 @@ begin
   begin
     tagWord := tags[i];
     tagWord := StringReplace(tagWord, ' ', '&nbsp;', [rfReplaceAll]);
-    tagHTML := tagHTML +
-      '<span style=''display:inline;border:1px solid blue;padding:1px;margin:2px;line-height:22px;background-color:rgb(181,213,255);''>'
-      + tagWord + ' ' + '</span>';
+    if Length(tagWord) > 0 then
+      tagHTML := tagHTML +
+        '<span style=''display:inline;border:1px solid blue;padding:1px;margin:2px;line-height:22px;background-color:rgb(181,213,255);''>'
+        + tagWord + ' ' + '</span>';
   end;
   Results.Add(tagHTML);
   FFSearch.Destroy;
@@ -349,9 +352,6 @@ begin
     taxUrl := '<a href=http://gbif.org/species/' + IntToStr(key) + '>';
     Results.Add('<p>' + taxUrl + IntToStr(nrecs) + ' record(s)</a></p>');
     Results.Add(taxUrl +
-      //'<iframe id="mapByFrame" name="map" src="http://cdn.gbif.org/v1/map/index.html?type=TAXON&key='
-      //+ IntToStr(key) +
-      //'&resolution=2" height="56%" width="56%" frameborder="1"/></iframe></a>');
       '<img src="./pictures/' + IntToStr(key) + '.png"' +
       ' height="56%" width="56%" border=1/></a>');
   end;
