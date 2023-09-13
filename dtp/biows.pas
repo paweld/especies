@@ -30,142 +30,339 @@ unit BioWS;
 interface
 
 uses
-  Classes,
-  SysUtils,
-  StrUtils,
-  fphttpclient,
-  openssl,
-  opensslsockets,
-  fpjson,
-  jsonparser,
-  DOM,
-  XMLRead,
-  XPath;
+  Classes, SysUtils, StrUtils,
+  LPDNetU,
+  fpjson, jsonparser,
+  DOM, XMLRead, XPath,
+  base64,
+  BGRABitmap, BGRABitmapTypes;
 
 type
+
+  { TGBIFSearch }
+
   TGBIFSearch = class(TObject) { Search GBIF (http://www.gbif.org) }
+  private
+    Fauthorship: String;
+    Fclasse: String;
+    Ffamily: String;
+    Fkey: Integer;
+    Fkingdom: String;
+    Forder: String;
+    Fphylum: String;
+    Fscientificname: String;
+    Fstatus: String;
+    Fvalid_name: String;
   public
-    GBIF_URL: string;
+    GBIF_URL: String;
     constructor Create;
-    procedure Search(const searchStr: string; var key: integer;
-      var scientificname, authorship, status, valid_name, kingdom,
-      phylum, classe, order, family: string);
-    function Count(key: integer): integer;
+    function Search(const searchStr: String): Boolean;
+    function Count(key: Integer): Integer;
+    property key: Integer read Fkey write Fkey;
+    property scientificname: String read Fscientificname write Fscientificname;
+    property authorship: String read Fauthorship write Fauthorship;
+    property status: String read Fstatus write Fstatus;
+    property valid_name: String read Fvalid_name write Fvalid_name;
+    property kingdom: String read Fkingdom write Fkingdom;
+    property phylum: String read Fphylum write Fphylum;
+    property classe: String read Fclasse write Fclasse;
+    property order: String read Forder write Forder;
+    property family: String read Ffamily write Ffamily;
   end;
+
+  { TNCBISearch }
 
   TNCBISearch = class(TObject)
     { Search NCBI's Entrez taxonomy database (http://www.ncbi.nlm.nih.gov/Entrez) }
+  private
+    Fcommonname: String;
+    Fdivision: String;
+    Fid: Integer;
+    FnucNum: Integer;
+    FprotNum: Integer;
+    Fscientificname: String;
   public
-    NCBI_URL: string;
-    results: TStringList;
+    NCBI_URL: String;
+    linklist: TStringList;
     constructor Create;
     destructor Destroy; override;
-    procedure Summary(const searchStr: string; var id: integer;
-      var division, scientificname, commonname: string; var nucNum, protNum: integer);
-    function Links(id: integer): TStringList;
+    function Summary(const searchStr: String): Boolean;
+    function Links(id: Integer): TStringList;
+    property id: Integer read Fid write Fid;
+    property division: String read Fdivision write Fdivision;
+    property scientificname: String read Fscientificname write Fscientificname;
+    property commonname: String read Fcommonname write Fcommonname;
+    property nucNum: Integer read FnucNum write FnucNum;
+    property protNum: Integer read FprotNum write FprotNum;
   end;
 
   TWikiSearch = class(TObject) { Search Wikipedia (http://en.wikipedia.org) articles }
   public
-    WIKIPEDIA_URL: string;
-    WIKIMEDIA_URL: string;
-    WIKIPEDIA_REDIRECT_URL: string;
+    WIKIPEDIA_URL: String;
+    WIKIMEDIA_URL: String;
+    WIKIPEDIA_REDIRECT_URL: String;
     candidates: TStringList;
     constructor Create;
     destructor Destroy; override;
-    function Snippet(const searchStr: string): string;
-    function Images(const searchStr: string; limit: integer = 10): TStringList;
+    function Snippet(const searchStr: String): String;
+    function Images(const searchStr: String; limit: Integer = 10): TStringList;
   end;
 
   TFFSearch = class(TObject) { Search FiveFilters }
   public
-    FF_URL: string;
+    FF_URL: String;
     Lines: TStringList;
     constructor Create;
     destructor Destroy; override;
-    function termExtract(const contextStr: string; limit: integer = 10): TStringList;
+    function termExtract(const contextStr: String; limit: Integer = 10): TStringList;
   end;
 
   TPubMedSearch = class(TObject) { Search PubMed }
   public
-    PUBMED_URL: string;
+    PUBMED_URL: String;
     references: TStringList;
     constructor Create;
     destructor Destroy; override;
-    function Search(const searchStr: string; limit: integer = 10): TStringList;
+    function Search(const searchStr: String; limit: Integer = 10): TStringList;
   end;
 
+  function GetUrlToFile(Url: String; AsName: String): Boolean;
+  function GetImgUrlToBase64Png(Url: String; InlineImg: Boolean; newWidth: Integer = 0; newHeight: Integer = 0; Proportional: Boolean = False): String;
+  function GetAndMergeImages(baseUrl, pointsUrl: String; resultFile: String; newWidth: Integer = 0; newHeight: Integer = 0; Proportional: Boolean = False): String;
+  function IsOnline(reliableserver: String = 'http://www.google.com'): Boolean;
+
 implementation
+
+function GetUrlToFile(Url: String; AsName: String): Boolean;
+var
+  ms: TMemoryStream;
+  Client: THttpClient;
+begin
+  Result := False;
+  if (ExtractFilePath(AsName) <> '') and not DirectoryExists(ExtractFilePath(AsName)) and not ForceDirectories(ExtractFilePath(AsName)) then
+    Exit;     
+  Client := THttpClient.Create;
+  ms := TMemoryStream.Create;
+  if Client.Get(Url, ms) and (ms.Size > 0) then
+  begin
+    ms.SaveToFile(AsName);
+    Result := True;
+  end;
+  ms.Free;
+  Client.Free;
+end;
+
+function GetImgUrlToBase64Png(Url: String; InlineImg: Boolean; newWidth: Integer; newHeight: Integer; Proportional: Boolean): String;
+var
+  Client: THttpClient;
+  ss: TStringStream;
+  w, h: Integer;
+  scale: Double;
+  bmp: TBGRABitmap;
+begin
+  Result := '';
+  Client := THttpClient.Create;
+  ss := TStringStream.Create;
+  if Client.Get(Url, ss) and (ss.Size > 0) then
+  begin
+    ss.Position := 0;
+    bmp := TBGRABitmap.Create(ss);
+    if (newWidth > 0) and (newHeight > 0) then
+    begin
+      if Proportional then
+      begin
+        scale := newWidth / bmp.Width;
+        if scale > (newHeight / bmp.Height) then
+          scale := newHeight / bmp.Height;
+        w := trunc(bmp.Width * scale);
+        h := trunc(bmp.Height * scale);
+      end
+      else
+      begin
+        w := newWidth;
+        h := newHeight;
+      end;                                             
+      BGRAReplace(bmp, bmp.Resample(w, h, rmFineResample));
+    end;
+    ss.Clear;
+    bmp.SaveToStreamAsPng(ss);
+    bmp.Free;
+    Result := EncodeStringBase64(ss.DataString);
+  end;
+  ss.Free;
+  if InlineImg and (Result <> '') then
+    Result := 'data:image/png;base64,' + Result;
+  Client.Free;
+end;
+
+function GetAndMergeImages(baseUrl, pointsUrl: String; resultFile: String; newWidth: Integer; newHeight: Integer; Proportional: Boolean): String;
+var
+  baseImg, ovrImg: TBGRABitmap;
+  bms, pms: TMemoryStream;
+  ss: TStringStream;
+  x, y: Integer;
+  px1, px2, px: TBGRAPixel;
+  w, h: Integer;
+  scale: Double;
+  Client: THttpClient;
+  b: Boolean;
+begin
+  Result := '';
+  bms := TMemoryStream.Create;
+  pms := TMemoryStream.Create;
+  Client := THttpClient.Create;
+  if Client.Get(baseUrl, bms) and (bms.Size > 0) then
+  begin
+    bms.Position := 0;
+    baseImg := TBGRABitmap.Create(bms);
+  end;
+  Client.Clear;
+  if Client.Get(pointsUrl, pms) and (pms.Size > 0) then
+  begin
+    pms.Position := 0;
+    ovrImg := TBGRABitmap.Create(pms);
+  end;
+  Client.Free;
+  b := (bms.Size = 0) or (pms.Size = 0);
+  bms.Free;
+  pms.Free;
+  if b then
+    exit;
+  if (baseImg.Width <> ovrImg.Width) or (baseImg.Height <> ovrImg.Height) then
+    exit;
+  for y := 0 to baseImg.Height - 1 do
+  begin
+    for x := 0 to baseImg.Width - 1 do
+    begin
+      px1 := baseImg.GetPixel(x, y);
+      px2 := ovrImg.GetPixel(x, y);
+      if px2.alpha = 0 then
+        px := px1
+      else
+        px := px2;
+      baseImg.SetPixel(x, y, px);
+    end;
+  end;
+  if (newWidth > 0) and (newHeight > 0) then
+  begin
+    if Proportional then
+    begin
+      scale := newWidth / baseImg.Width;
+      if scale > (newHeight / baseImg.Height) then
+        scale := newHeight / baseImg.Height;
+      w := trunc(baseImg.Width * scale);
+      h := trunc(baseImg.Height * scale);
+    end
+    else
+    begin
+      w := newWidth;
+      h := newHeight;
+    end;
+    BGRAReplace(baseImg, baseImg.Resample(w, h, rmFineResample));
+  end;
+  if resultFile <> '' then
+  begin
+    baseImg.SaveToFile(resultFile);
+    Result := 'OK';
+  end
+  else
+  begin
+    ss := TStringStream.Create;
+    baseImg.SaveToStreamAsPng(ss);
+    Result := 'data:image/png;base64,' + EncodeStringBase64(ss.DataString);
+    ss.Free;
+  end;
+  ovrImg.Free;
+  baseImg.Free;
+end;
+
+function IsOnline(reliableserver: String = 'http://www.google.com'): Boolean;
+var
+  http: THttpClient;
+begin
+  Result := False;
+  http := THttpClient.Create;
+  Result := http.Head(reliableserver);
+  http.Free;
+end;
 
 { TGBIFSearch methods }
 
 constructor TGBIFSearch.Create;
 begin
   GBIF_URL := 'http://api.gbif.org/v1';
+  Fauthorship := '';
+  Fclasse := '';
+  Ffamily := '';
+  Fkey := 0;
+  Fkingdom := '';
+  Forder := '';
+  Fphylum := '';
+  Fscientificname := '';
+  Fstatus := '';
+  Fvalid_name := '';
 end;
 
-procedure TGBIFSearch.Search(const searchStr: string; var key: integer;
-  var scientificname, authorship, status, valid_name, kingdom, phylum,
-  classe, order, family: string);
+function TGBIFSearch.Search(const searchStr: String): Boolean;
 var
-  JsonData: TJsonData;
-  Client: TFPHttpClient;
+  jd: TJSONData;
+  jo: TJSONObject;
+  json: String;
+  Client: THttpClient;
+  i: Integer;
 begin
-  try
-    Client := TFPHttpClient.Create(nil);
-    try
-      JsonData := GetJson(Client.Get(GBIF_URL + '/species/?name=' +
-        StringReplace(searchStr, ' ', '%20', [rfReplaceAll])));
-      key := JsonData.FindPath('results[0].key').AsInteger;
-      scientificname := JsonData.FindPath('results[0].canonicalName').AsString;
-      authorship := JsonData.FindPath('results[0].authorship').AsString;
-      status := JsonData.FindPath('results[0].taxonomicStatus').AsString;
-      status := LowerCase(StringReplace(status, '_', ' ', [rfReplaceAll]));
-      if status <> 'accepted' then
-        valid_name := JsonData.FindPath('results[0].species').AsString;
-      kingdom := JsonData.FindPath('results[0].kingdom').AsString;
-      phylum := JsonData.FindPath('results[0].phylum').AsString;
-      classe := JsonData.FindPath('results[0].class').AsString;
-      order := JsonData.FindPath('results[0].order').AsString;
-      family := JsonData.Findpath('results[0].family').AsString;
-    except
-      key := 0;
-      scientificname := '';
-      authorship := '';
-      status := '';
-      valid_name := '';
-      kingdom := '';
-      phylum := '';
-      classe := '';
-      order := '';
-      family := '';
+  Result := False;
+  Client := THttpClient.Create;
+  if Client.Get(GBIF_URL + '/species/?name=' + StringReplace(searchStr, ' ', '%20', [rfReplaceAll]), json) and (json <> '') then
+  begin
+    jd := GetJson(json);
+    if (jd.FindPath('results') = nil) or (TJSONArray(jd.FindPath('results')).Count = 0) then
+    begin
+      jd.Free;
+      exit;
     end;
-  finally
-    JsonData.Free;
-    Client.Free;
+    jo := TJSONObject(TJSONArray(jd.FindPath('results')).Items[0]);
+    for i := 0 to jo.Count - 1 do
+    begin
+      case jo.Names[i] of
+        'key': Fkey := jo.Items[i].AsInteger;
+        'canonicalName': Fscientificname := jo.Items[i].AsString;
+        'authorship': Fauthorship := jo.Items[i].AsString;
+        'taxonomicStatus':
+          begin
+            Fstatus := LowerCase(StringReplace(jo.Items[i].AsString, '_', ' ', [rfReplaceAll]));
+            if Fstatus <> 'accepted' then
+              Fvalid_name := jo.Items[jo.IndexOfName('species')].AsString;
+          end;
+        'kingdom': Fkingdom := jo.Items[i].AsString;
+        'phylum': Fphylum := jo.Items[i].AsString;
+        'class': Fclasse := jo.Items[i].AsString;
+        'order': Forder := jo.Items[i].AsString;
+        'family': Ffamily := jo.Items[i].AsString;
+      end;
+    end;
+    jd.Free;
+    Result := True;
   end;
+  Client.Free;
 end;
 
-function TGBIFSearch.Count(key: integer): integer;
+function TGBIFSearch.Count(key: Integer): Integer;
 var
-  JsonData: TJsonData;
-  Client: TFPHttpClient;
-  nrecs: integer;
+  jd: TJSONData;
+  json: String;
+  Client: THttpClient;
 begin
-  try
-    Client := TFPHttpClient.Create(nil);
-    try
-      JsonData := GetJson(Client.Get(GBIF_URL + '/occurrence/search?taxonKey=' +
-        IntToStr(key)));
-      nrecs := JsonData.FindPath('count').AsInteger;
-      Result := nrecs;
-    except
-      Result := 0;
-    end;
-  finally
-    JsonData.Free;
-    Client.Free;
+  Result := -1;
+  Client := THttpClient.Create;
+  if Client.Get(GBIF_URL + '/occurrence/search?taxonKey=' + IntToStr(key), json) and (json <> '') then
+  begin
+    jd := GetJson(json);
+    if jd.FindPath('count') <> nil then
+      Result := jd.FindPath('count').AsInteger;
+    jd.Free;
   end;
+  Client.Free;
 end;
 
 { TNCBISearch methods }
@@ -173,141 +370,131 @@ end;
 constructor TNCBISearch.Create;
 begin
   NCBI_URL := 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
-  results := TStringList.Create;
-  results.NameValueSeparator := '|';
+  linklist := TStringList.Create;
+  linklist.NameValueSeparator := '|';
+  Fcommonname := '';
+  Fdivision := '';
+  Fid := 0;
+  FnucNum := 0;
+  FprotNum := 0;
+  Fscientificname := '';
 end;
 
 destructor TNCBISearch.Destroy;
 begin
-  results.Free;
+  linklist.Free;
   inherited Destroy;
 end;
 
-procedure TNCBISearch.Summary(const searchStr: string; var id: integer;
-  var division, scientificname, commonname: string; var nucNum, protNum: integer);
+function TNCBISearch.Summary(const searchStr: String): Boolean;
 var
-  XmlData: ansistring;
+  XmlData: Ansistring;
   Doc: TXMLDocument;
-  Result: TXPathVariable;
-  Client: TFPHttpClient;
-  MemStrm: TMemoryStream;
+  Client: THttpClient;
+  ms: TMemoryStream;
 begin
-  try
-    Client := TFPHttpClient.Create(nil);
-    try
-      MemStrm := TMemoryStream.Create;
-      XmlData := Client.Get(NCBI_URL + 'esearch.fcgi?db=taxonomy&term=' +
-        StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
-      if Length(XmlData) > 0 then
-        MemStrm.Write(XmlData[1], Length(XmlData));
-      MemStrm.Position := 0;
-      ReadXMLFile(Doc, MemStrm);
-      MemStrm.Free;
-
-      { Get taxon id }
-      Result := EvaluateXPathExpression('/eSearchResult/IdList/Id',
-        Doc.DocumentElement);
-      id := StrToInt(string(Result.AsText));
-
-      MemStrm := TMemoryStream.Create;
-      XmlData := Client.Get(NCBI_URL + 'esummary.fcgi?db=taxonomy&id=' +
-        IntToStr(Id) + '&retmode=xml');
-      if Length(XmlData) > 0 then
-        MemStrm.Write(XmlData[1], Length(XmlData));
-      MemStrm.Position := 0;
-      ReadXMLFile(Doc, MemStrm);
-      MemStrm.Free;
-
-      { Get summary data }
-      Result := EvaluateXPathExpression(
-        '/eSummaryResult/DocSum/Item[@Name="Division"]', Doc.DocumentElement);
-      division := string(Result.AsText);
-
-      Result := EvaluateXPathExpression(
-        '/eSummaryResult/DocSum/Item[@Name="ScientificName"]', Doc.DocumentElement);
-      scientificname := string(Result.AsText);
-
-      Result := EvaluateXPathExpression(
-        '/eSummaryResult/DocSum/Item[@Name="CommonName"]', Doc.DocumentElement);
-      commonname := string(Result.AsText);
-
-      { Get nucleotide sequences }
-      MemStrm := TMemoryStream.Create;
-      XmlData := Client.Get(NCBI_URL + 'esearch.fcgi?db=nucleotide&term=' +
-        StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
-      if Length(XmlData) > 0 then
-        MemStrm.Write(XmlData[1], Length(XmlData));
-      MemStrm.Position := 0;
-      ReadXMLFile(Doc, MemStrm);
-      MemStrm.Free;
-      nucNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
-        Doc.DocumentElement).AsText));
-
-      { Get protein sequences }
-      MemStrm := TMemoryStream.Create;
-      XmlData := Client.Get(NCBI_URL + 'esearch.fcgi?db=protein&term=' +
-        StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
-      if Length(XmlData) > 0 then
-        MemStrm.Write(XmlData[1], Length(XmlData));
-      MemStrm.Position := 0;
-      ReadXMLFile(Doc, MemStrm);
-      MemStrm.Free;
-      protNum := StrToInt(string(EvaluateXPathExpression('/eSearchResult/Count',
-        Doc.DocumentElement).AsText));
-    except
-      id := 0;
-      division := '';
-      scientificName := '';
-      nucNum := 0;
-      protNum := 0;
+  Result := False;
+  Client := THttpClient.Create;
+  ms := TMemoryStream.Create;
+  { Get taxon id }
+  if Client.Get(NCBI_URL + 'esearch.fcgi?db=taxonomy&term=' + StringReplace(searchStr, ' ', '+', [rfReplaceAll]), ms) and (ms.Size > 0) then
+  begin
+    ms.Position := 0;
+    ReadXMLFile(Doc, ms);
+    with EvaluateXPathExpression('/eSearchResult/IdList/Id', Doc.DocumentElement) do
+    begin
+      TryStrToInt(AsText, Fid);
+      Free;
     end;
-  finally
-    Result.Free;
     Doc.Free;
-    Client.Free;
   end;
+  { Get summary data }
+  ms.Clear;
+  Client.Clear;
+  if Client.Get(NCBI_URL + 'esummary.fcgi?db=taxonomy&id=' + IntToStr(Fid) + '&retmode=xml', ms) and (ms.Size > 0) then
+  begin
+    ms.Position := 0;
+    ReadXMLFile(Doc, ms);
+    with EvaluateXPathExpression('/eSummaryResult/DocSum/Item[@Name="Division"]', Doc.DocumentElement) do
+    begin
+      Fdivision := AsText;
+      Free;
+    end;
+    with EvaluateXPathExpression('/eSummaryResult/DocSum/Item[@Name="ScientificName"]', Doc.DocumentElement) do
+    begin
+      Fscientificname := AsText;
+      Free;
+    end;
+    with EvaluateXPathExpression('/eSummaryResult/DocSum/Item[@Name="CommonName"]', Doc.DocumentElement) do
+    begin
+      Fcommonname := AsText;
+      Free;
+    end;
+    Doc.Free;
+  end;
+  { Get nucleotide sequences }
+  ms.Clear;
+  Client.Clear;
+  if Client.Get(NCBI_URL + 'esearch.fcgi?db=nucleotide&term=' + StringReplace(searchStr, ' ', '+', [rfReplaceAll]), ms) and (ms.Size > 0) then
+  begin
+    ms.Position := 0;
+    ReadXMLFile(Doc, ms);
+    with EvaluateXPathExpression('/eSearchResult/Count', Doc.DocumentElement) do
+    begin
+      TryStrToInt(AsText, FnucNum);
+      Free;
+    end;
+    Doc.Free;
+  end;
+  { Get protein sequences }
+  ms.Clear;
+  Client.Clear;
+  if Client.Get(NCBI_URL + 'esearch.fcgi?db=protein&term=' + StringReplace(searchStr, ' ', '+', [rfReplaceAll]), ms) and (ms.Size > 0) then
+  begin
+    ms.Position := 0;
+    ReadXMLFile(Doc, ms);
+    with EvaluateXPathExpression('/eSearchResult/Count', Doc.DocumentElement) do
+    begin
+      TryStrToInt(AsText, FprotNum);
+      Free;
+    end;
+    Doc.Free;
+  end;
+  Client.Free;
+  ms.Free;
+  Result := Fid <> 0;
 end;
 
-function TNCBISearch.Links(id: integer): TStringList;
+function TNCBISearch.Links(id: Integer): TStringList;
 var
-  XmlData: ansistring;
   Doc: TXMLDocument;
   Result1, Result2: TXPathVariable;
   NodeSet1, NodeSet2: TNodeSet;
-  i: integer;
-  Client: TFPHttpClient;
-  MemStrm: TMemoryStream;
+  i: Integer;
+  Client: THttpClient;
+  ms: TMemoryStream;
 begin
+  linklist.Clear;
+  Client := THttpClient.Create;
+  ms := TMemoryStream.Create;
   { Get list of links }
-  try
-    Client := TFPHttpClient.Create(nil);
-    try
-      MemStrm := TMemoryStream.Create;
-      XmlData := Client.Get(NCBI_URL + 'elink.fcgi?dbfrom=taxonomy&id=' +
-        IntToStr(id) + '&cmd=llinkslib');
-      if Length(XmlData) > 0 then
-        MemStrm.Write(XmlData[1], Length(XmlData));
-      MemStrm.Position := 0;
-      ReadXMLFile(Doc, MemStrm);
-      MemStrm.Free;
-      Result1 := EvaluateXPathExpression('//ObjUrl/Url', Doc.DocumentElement);
-      Result2 := EvaluateXPathExpression('//ObjUrl/Provider/Name',
-        Doc.DocumentElement);
-      NodeSet1 := Result1.AsNodeSet;
-      NodeSet2 := Result2.AsNodeSet;
-      if NodeSet1.Count > 0 then
-        for i := 0 to NodeSet1.Count - 1 do
-          results.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
-            '|' + string(TDomElement(NodeSet2.Items[i]).TextContent));
-      Result := results;
-    except
-      Result := nil;
-    end;
-  finally
+  if Client.Get(NCBI_URL + 'elink.fcgi?dbfrom=taxonomy&id=' + IntToStr(id) + '&cmd=llinkslib', ms) and (ms.Size > 0) then
+  begin
+    ms.Position := 0;
+    ReadXMLFile(Doc, ms);
+    Result1 := EvaluateXPathExpression('//ObjUrl/Url', Doc.DocumentElement);
+    Result2 := EvaluateXPathExpression('//ObjUrl/Provider/Name', Doc.DocumentElement);
+    NodeSet1 := Result1.AsNodeSet;
+    NodeSet2 := Result2.AsNodeSet;
+    for i := 0 to NodeSet1.Count - 1 do
+      linklist.Add(TDomElement(NodeSet1.Items[i]).TextContent + '|' + TDomElement(NodeSet2.Items[i]).TextContent);
     Result1.Free;
     Result2.Free;
-    Client.Free;
+    Doc.Free;
   end;
+  Client.Free;
+  ms.Free;
+  Result := linklist;
 end;
 
 { TWikiSearch methods }
@@ -348,32 +535,35 @@ begin
   end;
 end;*)
 
-function TWikiSearch.Snippet(const searchStr: string): string;
+function TWikiSearch.Snippet(const searchStr: String): String;
 var
-  JsonData: TJsonData;
-  queryStr: string;
-  Client: TFPHttpClient;
+  jd: TJSONData;
+  json, queryStr: String;
+  Client: THttpClient;
 begin
-  try
-    Client := TFPHttpClient.Create(nil);
-    try
-      { Allow redirections }
-      JsonData := GetJSON(Client.Get(WIKIPEDIA_REDIRECT_URL +
-        StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
-      if JsonData.FindPath('query.redirects[0].to') <> nil then
-        queryStr := JsonData.FindPath('query.redirects[0].to').AsString
-      else
-        queryStr := searchStr;
-      JsonData := GetJson(Client.Get(WIKIPEDIA_URL +
-        StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
-      Result := JsonData.FindPath('extract').AsUnicodeString;
-    except
-      Result := '';
-    end;
-  finally
-    JsonData.Free;
-    Client.Free;
+  Result := '';
+  Client := THttpClient.Create;
+  { Allow redirections }
+  if Client.Get(WIKIPEDIA_REDIRECT_URL + StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json', json) and (json <> '') then
+  begin
+    jd := GetJson(json);
+    if jd.FindPath('query.redirects[0].to') <> nil then
+      queryStr := jd.FindPath('query.redirects[0].to').AsString
+    else
+      queryStr := searchStr;
+    jd.Free;
   end;
+  //
+  json := '';
+  client.Clear;
+  if Client.Get(WIKIPEDIA_URL + StringReplace(queryStr, ' ', '_', [rfReplaceAll]), json) and (json <> '') then
+  begin
+    jd := GetJson(json);
+    if jd.FindPath('extract') <> nil then
+      Result := jd.FindPath('extract').AsUnicodeString;
+    jd.Free;
+  end;
+  Client.Free;
 end;
 
 (*{ Search images from Wikimedia Commons }
@@ -414,46 +604,57 @@ begin
   end;
 end; *)
 
-function TWikiSearch.Images(const searchStr: string; limit: integer = 10): TStringList;
+function TWikiSearch.Images(const searchStr: String; limit: Integer = 10): TStringList;
 var
-  JsonData, JsonItem, JsonItems: TJsonData;
-  i, Count: integer;
-  queryStr, ext: string;
-  Client: TFPHttpClient;
+  jd: TJsonData;
+  ja: TJSONArray;
+  jo: TJSONObject;
+  i, Count: Integer;
+  json, queryStr, ext: String;
+  Client: THttpClient;
 begin
-  try
-    Client := TFPHttpClient.Create(nil);
-    try
-      JsonData := GetJSON(Client.Get(WIKIPEDIA_REDIRECT_URL +
-        StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json'));
-      if JsonData.FindPath('query.redirects[0].to') <> nil then
-        queryStr := JsonData.FindPath('query.redirects[0].to').AsString
-      else
-        queryStr := searchStr;
-      JsonData := GetJson(Client.Get(WIKIMEDIA_URL +
-        StringReplace(queryStr, ' ', '_', [rfReplaceAll])));
-      JsonItems := JsonData.FindPath('items');
-      Count := 0;
-      for i := 0 to JsonItems.Count - 1 do
+  candidates.Clear;
+  Client := THttpClient.Create;
+  { Allow redirections }
+  if Client.Get(WIKIPEDIA_REDIRECT_URL + StringReplace(searchStr, ' ', '+', [rfReplaceAll]) + '&redirects&format=json', json) and (json <> '') then
+  begin
+    jd := GetJson(json);
+    if jd.FindPath('query.redirects[0].to') <> nil then
+      queryStr := jd.FindPath('query.redirects[0].to').AsString
+    else
+      queryStr := searchStr;
+    jd.Free;
+  end;
+  //
+  Count := 0;
+  Client.Clear;
+  json := '';
+  if Client.Get(WIKIMEDIA_URL + StringReplace(queryStr, ' ', '_', [rfReplaceAll]), json) and (json <> '') then
+  begin
+    jd := GetJson(json);
+    if jd.FindPath('items') <> nil then
+    begin
+      ja := TJSONArray(jd.FindPath('items'));
+      for i := 0 to ja.Count - 1 do
       begin
-        JsonItem := JsonItems.Items[i];
-        ext := ExtractFileExt(JsonItem.FindPath('title').AsString);
-        if (ext = '.jpg') then
+        jo := TJSONObject(ja.Items[i]);
+        if jo.FindPath('title') <> nil then
         begin
-          candidates.Add(JsonItem.FindPath('title').AsString);
-          Inc(Count);
-          if Count >= limit then
-            break;
+          ext := LowerCase(ExtractFileExt(jo.FindPath('title').AsString));
+          if (ext = '.jpg') then
+          begin
+            candidates.Add(jo.FindPath('title').AsString);
+            Inc(Count);
+            if Count >= limit then
+              break;
+          end;
         end;
       end;
-      Result := candidates;
-    except
-      candidates := nil;
     end;
-  finally
-    JsonData.Free;
-    Client.Free;
+    jd.Free;
   end;
+  Client.Free;
+  Result := candidates;
 end;
 
 { TFFSearch methods }
@@ -472,30 +673,17 @@ end;
 
 { Provides a list of significant words or phrases extracted from a larger content from FiveFilters Web service }
 
-function TFFSearch.termExtract(const contextStr: string;
-  limit: integer = 10): TStringList;
+function TFFSearch.termExtract(const contextStr: String; limit: Integer = 10): TStringList;
 var
-  TextData: ansistring;
-  Client: TFPHttpClient;
-  MemStrm: TMemoryStream;
+  TextData: Ansistring;
+  Client: THttpClient;
 begin
-  try
-    Client := TFPHttpClient.Create(nil);
-    try
-      MemStrm := TMemoryStream.Create;
-      TextData := Client.Get(FF_URL + 'extract.php?text=' +
-        StringReplace(contextStr, ' ', '+', [rfReplaceAll]) +
-        '&output=txt&max=' + IntToStr(limit));
-      Lines.Text := StringReplace(TextData, '\n', LineEnding,
-        [rfReplaceAll, rfIgnoreCase]);
-      Result := Lines;
-    except
-      Result := nil;
-    end;
-  finally
-    Client.Free;
-    MemStrm.Free;
-  end;
+  Lines.Clear;
+  Client := THttpClient.Create;
+  if Client.Get(FF_URL + 'extract.php?text=' + StringReplace(contextStr, ' ', '+', [rfReplaceAll]) + '&output=txt&max=' + IntToStr(limit), textdata) and (textdata <> '') then
+    Lines.Text := StringReplace(TextData, '\n', LineEnding, [rfReplaceAll, rfIgnoreCase]);
+  Client.Free;
+  Result := Lines;
 end;
 
 { TPubMedSearch methods }
@@ -512,77 +700,60 @@ begin
   inherited Destroy;
 end;
 
-function TPubMedSearch.Search(const searchStr: string;
-  limit: integer = 10): TStringList;
+function TPubMedSearch.Search(const searchStr: String; limit: Integer = 10): TStringList;
 var
-  XmlData: ansistring;
   Doc: TXMLDocument;
   Result1, Result2: TXPathVariable;
   NodeSet1, NodeSet2, Ids: TNodeSet;
-  id: string;
-  i: integer;
-  Client: TFPHttpClient;
-  MemStrm: TMemoryStream;
+  id: String;
+  i: Integer;
+  Client: THttpClient;
+  ms: TMemoryStream;
 begin
-  try
-    Client := TFPHttpClient.Create(nil);
-    try
-      MemStrm := TMemoryStream.Create;
-      XmlData := Client.Get(PUBMED_URL + 'esearch.fcgi?db=pubmed&retmax=' +
-        IntToStr(limit) + '&sort=relevance&term=' +
-        StringReplace(searchStr, ' ', '+', [rfReplaceAll]));
-
-      if Length(XmlData) > 0 then
-        MemStrm.Write(XmlData[1], Length(XmlData));
-      MemStrm.Position := 0;
-      ReadXMLFile(Doc, MemStrm);
-      MemStrm.Free;
-
-      { Get reference ids }
-      Result1 := EvaluateXPathExpression('/eSearchResult/IdList/Id',
-        Doc.DocumentElement);
-      Ids := Result1.AsNodeSet;
-      id := '';
-      if Ids.Count > 0 then
-        for i := 0 to Ids.Count - 1 do
-          id := id + string(TDomElement(Ids.Items[i]).TextContent) + ',';
-
-      MemStrm := TMemoryStream.Create;
-      XmlData := Client.Get(PUBMED_URL + 'efetch.fcgi?db=pubmed&id=' +
-        id + '&retmode=xml');
-      if Length(XmlData) > 0 then
-        MemStrm.Write(XmlData[1], Length(XmlData));
-      MemStrm.Position := 0;
-      ReadXMLFile(Doc, MemStrm);
-      MemStrm.Free;
-
-      { Get list of references }
-      Result1 := EvaluateXPathExpression('//Article/ArticleTitle',
-        Doc.DocumentElement);
-      Result2 := EvaluateXPathExpression(
-        '//PubmedData/ArticleIdList/ArticleId[@IdType="doi"]', Doc.DocumentElement);
-      NodeSet1 := Result1.AsNodeSet;
-      NodeSet2 := Result2.AsNodeSet;
-      if NodeSet1.Count > 0 then
-      begin
-        for i := 0 to NodeSet1.Count - 1 do
-          try
-            references.Add(string(TDomElement(NodeSet1.Items[i]).TextContent) +
-              '=' + string(TDomElement(NodeSet2.Items[i]).TextContent));
-          except
-            continue;
-          end;
+  references.Clear;
+  Client := THttpClient.Create;
+  ms := TMemoryStream.Create;
+  { Get reference ids }
+  if Client.Get(PUBMED_URL + 'esearch.fcgi?db=pubmed&retmax=' + IntToStr(limit) + '&sort=relevance&term=' + StringReplace(searchStr, ' ', '+', [rfReplaceAll]), ms)
+    and (ms.Size > 0) then
+  begin
+    ms.Position := 0;
+    ReadXMLFile(Doc, ms);
+    Result1 := EvaluateXPathExpression('/eSearchResult/IdList/Id', Doc.DocumentElement);
+    Ids := Result1.AsNodeSet;
+    id := '';
+    for i := 0 to Ids.Count - 1 do
+      id := id + TDomElement(Ids.Items[i]).TextContent + ',';
+    Result1.Free;
+    Doc.Free;
+  end;
+  { Get list of references }
+  ms.Clear;
+  Client.Clear;
+  if Client.Get(PUBMED_URL + 'efetch.fcgi?db=pubmed&id=' + id + '&retmode=xml', ms) and (ms.Size > 0) then
+  begin
+    ms.Position := 0;
+    ReadXMLFile(Doc, ms);
+    Result1 := EvaluateXPathExpression('//Article/ArticleTitle', Doc.DocumentElement);
+    Result2 := EvaluateXPathExpression('//PubmedData/ArticleIdList/ArticleId[@IdType="doi"]', Doc.DocumentElement);
+    NodeSet1 := Result1.AsNodeSet;
+    NodeSet2 := Result2.AsNodeSet;
+    if NodeSet1.Count > 0 then
+    begin
+      for i := 0 to NodeSet1.Count - 1 do
+      try
+        references.Add(TDomElement(NodeSet1.Items[i]).TextContent + '=' + TDomElement(NodeSet2.Items[i]).TextContent);
+      except
+        continue;
       end;
-      Result := references;
-    except
-      Result := nil;
     end;
-  finally
     Result1.Free;
     Result2.Free;
     Doc.Free;
-    Client.Free;
   end;
+  Client.Free;
+  ms.Free;
+  Result := references;
 end;
 
 end.

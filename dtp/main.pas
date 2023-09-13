@@ -32,6 +32,14 @@
 {                                Wikipedia                                      }
 {    Version 1.05, 17th Aug 23 - Changed the code for retrieving data from      }
 {                                FiveFilters and NCBI                           }
+{    Version 1.06, 13th Sep 23 - paweld:                                        }
+{                                *Fixed a memory leaaks                         }
+{                                *moved searching to thread                     }
+{                                *replacing fphttpclient with synapse           }
+{                                 (there should be no problems with different   }
+{                                  versions of openssl)                         }
+{                                *html stored in a string (no writing to disk)  }
+{                                *inline images with resize                     }
 {===============================================================================}
 
 unit main;
@@ -42,11 +50,33 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Dialogs, ExtCtrls, StdCtrls,
-  Buttons, StrUtils, FileUtil, fphttpclient, fpjson, jsonparser, openssl,
-  opensslsockets, LCLIntf, ComCtrls, HtmlView, HtmlGlobals, Graphics,
-  fpImage, fpreadpng, fpwritepng;
+  Buttons, StrUtils, FileUtil, LCLIntf, ComCtrls, HtmlView, HtmlGlobals, Graphics,
+  fpjson, jsonparser,
+  base64,
+  BioWS;
 
 type
+
+  { TLoadThread }
+
+  TLoadThread = class(TThread)
+  private
+    Fname, Flogo, Fstyle, Fstatus: String;
+    Fresults: TStringList;
+    Fcursor: TCursor;
+    FGBIFSearch: TGBIFSearch;
+    FNCBISearch: TNCBISearch;
+    FWikiSearch: TWikiSearch;
+    FFFSearch: TFFSearch;
+    FPubMedSearch: TPubMedSearch;
+    procedure SynchroInfo;
+    procedure SynchroResult;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(aname, alogo, astyle: String);
+    destructor Destroy; override;
+  end;
 
   { TMainForm }
 
@@ -65,13 +95,12 @@ type
     procedure AboutButtonClick(Sender: TObject);
     procedure ClearButtonClick(Sender: TObject);
     procedure ExitBtnClick(Sender: TObject);
-    procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure HomeButtonClick(Sender: TObject);
-    procedure HtmlViewerHotSpotClick(Sender: TObject; const SRC: ThtString;
-      var Handled: boolean);
+    procedure HtmlViewerHotSpotClick(Sender: TObject; const SRC: ThtString; var Handled: Boolean);
     procedure HtmlViewerHotSpotCovered(Sender: TObject; const SRC: ThtString);
     procedure ReloadButtonClick(Sender: TObject);
     procedure SearchButtonClick(Sender: TObject);
@@ -79,25 +108,29 @@ type
   private
 
   public
-    procedure DoSearch(const queryStr: string);
+    Results: TStringList;
+    procedure DoSearch(const queryStr: String);
   end;
 
 var
   MainForm: TMainForm;
-  queryStr: string;
-  Results: TStringList;
 
 implementation
 
 {$R *.lfm}
 
-uses about, BioWS;
+uses
+  about;
 
-function FindString(const SearchKey: string; SearchList: TStrings): integer;
 var
-  Found: boolean;
-  I: integer;
-  SearchStr: string;
+  logo, style: String;
+  loadthread: TLoadThread;
+
+function FindString(const SearchKey: String; SearchList: TStrings): Integer;
+var
+  Found: Boolean;
+  I: Integer;
+  SearchStr: String;
 begin
   Found := False;
   I := 0;
@@ -116,305 +149,309 @@ begin
     Result := -1;
 end;
 
-function GetUrlAs(Url: string; AsName: string): boolean;
+{ TLoadThread }
+
+procedure TLoadThread.SynchroInfo;
 begin
-  Result := False;
-  with TFPHttpClient.Create(nil) do
-    try
-      AddHeader('User-Agent',
-        'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:18.0) Gecko/20100101 Firefox/18.0');
-      AllowRedirect := True;
-      if (ExtractFilePath(AsName) <> '') then
-        if not DirectoryExists(ExtractFilePath(AsName)) then
-          if not ForceDirectories(ExtractFilePath(AsName)) then
-            Exit;
-      try
-        Get(Url, AsName);
-        Result := True;
-      finally
-        Free;
-      end;
-    except
-      on E: Exception do
-        MessageDlg('Error', 'Failed to download image.', mtError, [mbOK], 0);
-    end;
+  if Screen.Cursor <> Fcursor then
+    Screen.Cursor := Fcursor;
+  MainForm.StatusBar.SimpleText := Fstatus;
 end;
 
-function MergeImages(baseImageFile, overlayFile, resultFile: string): boolean;
-var
-  baseImg, ovrImg: TFPCustomImage;
-  x, y: integer;
+procedure TLoadThread.SynchroResult;
 begin
-  Result := True;
-  baseImg := TFPMemoryImage.Create(1, 1);
-  try
-    baseImg.LoadFromFile(baseImageFile);
-    ovrImg := TFPMemoryImage.Create(1, 1);
-    try
-      ovrImg.LoadFromFile(overlayFile);
-      if (baseImg.Width <> ovrImg.Width) or (baseImg.Height <> ovrImg.Height) then
-      begin
-        MessageDlg('Error', 'Both images have different size.', mtError, [mbOK], 0);
-        Result := False;
-        Halt(0);
-      end;
-      for y := 0 to baseImg.Height - 1 do
-        for x := 0 to baseImg.Width - 1 do
-          baseImg.Colors[x, y] := AlphaBlend(baseImg.Colors[x, y], ovrImg.Colors[x, y]);
-      baseImg.SaveToFile(resultFile);
-    finally
-      ovrImg.Free;
-    end;
-  finally
-    baseImg.Free;
+  MainForm.Results.Text := Fresults.Text;
+  MainForm.HtmlViewer.LoadFromString(Fresults.Text);
+end;
+
+procedure TLoadThread.Execute;
+var
+  status, taxon_list, snippet: String;
+  urlWiki, tagWord, tagHTML, refUrl, imgUrl, taxUrl, urlId, UrlNuc, urlProt, itemStr, baseMapUrl, pointsUrl: String;
+  s: String;
+  i, nrecs: Integer;
+  linkOut, linkIn, imgs, tags, pubs: TStringList;
+  cs: Int64;
+begin
+  cs := GetTickCount64;
+  if not Terminated then
+  begin
+    Fcursor := crHourGlass;
+    Synchronize(@SynchroInfo);
   end;
-end;
-
-function IsOnline(reliableserver: string = 'http://www.google.com'): boolean;
-var
-  http: tfphttpclient;
-  httpstate: integer;
-begin
-  Result := False;
-  try
-    http := tfphttpclient.Create(nil);
-    try
-      http.Get(reliableserver);
-      httpstate := http.ResponseStatusCode;
-      if httpstate = 200 then
-        Result := True
+  if not Terminated then
+  begin
+    Fresults.Add('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">');
+    Fresults.Add('<html>');
+    Fresults.Add('<head>');
+    Fresults.Add('<title>e-Species search Fresults for ' + Fname + '</title>');
+    Fresults.Add(Fstyle);
+    Fresults.Add('</head>');
+    Fresults.Add('<body bgcolor="#ffffff">');
+    Fresults.Add('<h1>' + Flogo + '</h1>');
+    Fresults.Add('<h3>A taxonomically intelligent biodiversity search engine</h3>');
+    Fresults.Add('<p>Search biological databases for a taxonomic name. The search is done "on the fly" using web services (JSON/XML) or URL API''s.</p>');
+  end;
+  if not Terminated then
+  begin
+    Fstatus := 'Fetching taxonomic data from CoL...';
+    Synchronize(@SynchroInfo);
+  end;
+  if not Terminated then
+  begin
+    FGBIFSearch.Search(Fname);
+    if (Length(FGBIFSearch.status) > 0) then
+    begin
+      if FGBIFSearch.status <> 'accepted' then
+        status := ' (' + FGBIFSearch.status + ' of <i>' + FGBIFSearch.valid_name + '</i>' + ' ' + FGBIFSearch.authorship + ')'
       else
-        Result := False;
-    except
-      on E: Exception do
-        Result := False;
+        status := ' (' + FGBIFSearch.status + ')';
     end;
-  finally
-    http.Free;
+    taxon_list := FGBIFSearch.kingdom + '; ' + FGBIFSearch.phylum + '; ' + FGBIFSearch.classe + '; ' + FGBIFSearch.order + '; ' + FGBIFSearch.family;
+    Fresults.Add('<h2><i>' + Fname + '</i>' + ' ' + FGBIFSearch.authorship + status + '</h2>');
+    Fresults.Add('<h3>Classification from CoL</h3>');
+    if Length(FGBIFSearch.scientificname) = 0 then
+      Fresults.Add('No names found')
+    else
+      Fresults.Add(taxon_list);
+    nrecs := FGBIFSearch.Count(FGBIFSearch.key);
   end;
+  if not Terminated then
+  begin
+    Fstatus := 'Fetching content from Wikipedia...';
+    Synchronize(@SynchroInfo);
+  end;
+  if not Terminated then
+    snippet := FWikiSearch.Snippet(Fname);
+  if not Terminated then
+  begin
+    Fstatus := 'Building keyword list...';
+    Synchronize(@SynchroInfo);
+  end;
+  if not Terminated then
+  begin
+    tags := FFFSearch.termExtract(snippet, 10);
+    tagHTML := '';
+    Fresults.Add('<h3>Text tags</h3>');
+    for i := 0 to tags.Count - 1 do
+    begin
+      tagWord := tags[i];
+      tagWord := StringReplace(tagWord, ' ', '&nbsp;', [rfReplaceAll]);
+      if Length(tagWord) > 0 then
+        tagHTML := tagHTML + '<span style=''display:inline;border:1px solid blue;padding:1px;margin:2px;line-height:22px;background-color:rgb(181,213,255);''>'
+          + tagWord + ' ' + '</span>';
+      if Terminated then
+        break;
+    end;
+    Fresults.Add(tagHTML);
+  end;
+  if not Terminated then
+  begin
+    urlWiki := 'http://en.wikipedia.org/wiki/' + StringReplace(Fname, ' ', '_', [rfReplaceAll]);
+    Fresults.Add('<h3>Wikipedia</h3>');
+    if Length(snippet) = 0 then
+      Fresults.Add('No article title matches')
+    else
+    begin
+      Fresults.Add(snippet);
+      Fresults.Add('<p><a href="' + urlWiki + '">Original article</a></p>');
+    end;
+  end;
+  if not Terminated then
+  begin
+    Fstatus := 'Fetching genomic data from NCBI...';
+    Synchronize(@SynchroInfo);
+  end;
+  if not Terminated then
+  begin
+    Fresults.Add('<h3>Genomics from NCBI</h3>');
+    FNCBISearch.Summary(Fname);
+    urlId := 'http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Info&id=' + IntToStr(FNCBISearch.id);
+    urlNuc := 'http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?db=Nucleotide&cmd=Search&dopt=DocSum&term=txid' + IntToStr(FNCBISearch.id) + '[Organism:exp]';
+    urlProt := 'http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?db=Protein&cmd=Search&dopt=DocSum&term=txid' + IntToStr(FNCBISearch.id) + '[Organism:exp]';
+    Fresults.Add('TaxId: <a href="' + urlId + '">' + IntToStr(FNCBISearch.id) + '</a>&nbsp;');
+    if Length(FNCBISearch.scientificname) = 0 then
+      Fresults.Add('No items found for ' + '<i>' + Fname + '</i> ')
+    else
+    begin
+      Fresults.Add('<i>' + FNCBISearch.scientificname + '</i>');
+      Fresults.Add('[' + FNCBISearch.division + '] ');
+      Fresults.Add('Sequences: ' + '<a href="' + urlNuc + '">' + IntToStr(FNCBISearch.nucNum) + '</a> nucleotide, ' +
+        '<a href="' + urlProt + '">' + IntToStr(FNCBISearch.protNum) + '</a> protein');
+    end;
+  end;
+  if not Terminated then
+  begin
+    linkOut := FNCBISearch.Links(FNCBISearch.id);
+    linkIn := TStringList.Create;
+    Fresults.Add('<ul type="circle">');
+    for i := 0 to linkOut.Count - 1 do
+    begin
+      itemStr := linkOut.ValueFromIndex[i];
+      if linkIn.IndexOf(itemStr) < 0 then
+      begin
+        Fresults.Add('<li><a href="' + linkOut.Names[i] + '">' + linkOut.ValueFromIndex[i] + '</a></li>');
+        linkIn.Append(itemStr);
+        if Terminated then
+          break;
+      end;
+    end;
+    linkIn.Free;
+    Fresults.Add('</ul>');
+  end;
+  if not Terminated then
+  begin
+    Fstatus := 'Fetching distribution dara from GBIF...';
+    Synchronize(@SynchroInfo);
+  end;                
+  if not Terminated then
+  begin                   
+    Fresults.Add('<h3>Map from GBIF</h3>');
+    if FGBIFSearch.key = 0 then
+      Fresults.Add('No species found')
+    else
+    begin
+      baseMapUrl := 'https://tile.gbif.org/3857/omt/0/0/0@1x.png?style=gbif-classic';
+      pointsUrl :=
+        'https://api.gbif.org/v2/map/occurrence/density/0/0/0@1x.png?style=classic.point&taxonKey=' + IntToStr(FGBIFSearch.key);
+      s := GetAndMergeImages(baseMapUrl, pointsUrl, '', 300, 300, True);
+      if s <> '' then
+      begin
+        taxUrl := '<a href=http://gbif.org/species/' + IntToStr(FGBIFSearch.key) + '>';
+        Fresults.Add('<p>' + taxUrl + IntToStr(nrecs) + ' record(s)</a></p>');
+        Fresults.Add(taxUrl + '<img src="' + s +'" border=1/></a>');
+      end;
+    end;
+  end;
+  if not Terminated then
+  begin
+    Fstatus := 'Fetching images from Wikimedia Commons...';
+    Synchronize(@SynchroInfo);
+  end;
+  if not Terminated then
+  begin
+    Fresults.Add('<h3>Images from Wikimedia Commons</h3>');
+    imgs := FWikiSearch.Images(Fname, 5);
+    if imgs.Count = 0 then
+      Fresults.Add('No images found')
+    else
+    begin
+      for i := 0 to imgs.Count - 1 do
+      begin
+        if Terminated then
+          break;
+        imgUrl := 'http://commons.wikimedia.org/wiki/Special:Filepath/' + ExtractDelimited(2, imgs[i], [':']);
+        refUrl := '<a href="http://en.wikipedia.org/wiki/' + imgs[i] + '">';
+        Fresults.Add(refUrl + '<img src="' + GetImgUrlToBase64Png(imgUrl, True, 94, 145) + '" width=94 height=145 border=1></a>');
+      end;
+    end;
+  end;
+  if not Terminated then
+  begin
+    Fstatus := 'Fetching articles from PubMed...';
+    Synchronize(@SynchroInfo);
+  end; 
+  if not Terminated then
+  begin
+    Fresults.Add('<h3>Articles from PubMed</h3>');
+    pubs := FPubMedSearch.Search(Fname);
+    if (pubs = nil) or (pubs.Count = 0) then
+      Fresults.Add('No articles found')
+    else
+    begin
+      for i := 0 to pubs.Count - 1 do
+      begin
+        Fresults.Add('<hr noshade>');
+        Fresults.Add('<b><a href="http://dx.doi.org/doi:' + pubs.ValueFromIndex[i] + '">' + pubs.Names[i] + '</a></b><br>');
+        if Terminated then
+          break;
+      end;
+    end;
+    Fresults.Add(
+      '<br><p align="left"><small><small>&copy; 2008-2023 </small><a href="http://github.com/maurobio/"><small>Mauro J. Cavalcanti</small></a></small></p>');
+    Fresults.Add('</body>');
+    Fresults.Add('</html>');
+  end;
+  Fcursor := crDefault;
+  if not Terminated then
+  begin
+    Synchronize(@SynchroResult);                
+    Fstatus := 'Ready (' + IntToStr(GetTickCount64 - cs) + 'ms)';
+  end
+  else
+    Fstatus := '';
+  Synchronize(@SynchroInfo);
+  //clean
+  if Assigned(linkIn) then
+    linkIn.Free;
+end;
+
+constructor TLoadThread.Create(aname, alogo, astyle: String);
+begin
+  inherited Create(True);
+  FreeOnTerminate := False;
+  Fname := aname;
+  Flogo := alogo;
+  Fstyle := astyle;
+  Fresults := TStringList.Create;
+  Fstatus := '';
+  FGBIFSearch := TGBIFSearch.Create;
+  FNCBISearch := TNCBISearch.Create;
+  FWikiSearch := TWikiSearch.Create;
+  FFFSearch := TFFSearch.Create;
+  FPubMedSearch := TPubMedSearch.Create;
+  Self.Start;
+end;
+
+destructor TLoadThread.Destroy;
+begin
+  FGBIFSearch.Free;
+  FNCBISearch.Free;
+  FWikiSearch.Free;
+  FFFSearch.Free;
+  FPubMedSearch.Free;
+  Fresults.Free;
+  inherited Destroy;
 end;
 
 { TMainForm }
 
-procedure TMainForm.DoSearch(const queryStr: string);
-var
-  scientificname, authorship, status, valid_name, kingdom, phylum,
-  classe, order, family, taxon_list: string;
-  division, commonname, snippet: string;
-  urlWiki, tagWord, tagHTML, refUrl, imgUrl, taxUrl, urlId, UrlNuc,
-  urlProt, itemStr, baseMapUrl, pointsUrl: string;
-  targetDir: string;
-  key, taxId, nucNum, protNum: integer;
-  i, nrecs: integer;
-  linkOut, linkIn, imgs, tags, pubs: TStringList;
-  GBIFSearch: TGBIFSearch;
-  NCBISearch: TNCBISearch;
-  WikiSearch: TWikiSearch;
-  FFSearch: TFFSearch;
-  PubMedSearch: TPubMedSearch;
+procedure TMainForm.DoSearch(const queryStr: String);
 begin
   if not IsOnline then
   begin
     MessageDlg('Error', 'No internet connection', mtError, [mbOK], 0);
     Exit;
   end;
-  Application.ProcessMessages;
-  Screen.Cursor := crHourGlass;
   Results.Clear;
-  Results.Add('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">');
-  Results.Add('<html>');
-  Results.Add('<head>');
-  Results.Add('<title>e-Species search results for ' + queryStr + '</title>');
-  Results.Add('<link rel="stylesheet" type="text/css" href="./static/stylesheet.css">');
-  Results.Add('</head>');
-  Results.Add('<body bgcolor="#ffffff">');
-  Results.Add('<h1><img src="./static/especies.png" height="73" width="385"></h1>');
-  Results.Add('<h3>A taxonomically intelligent biodiversity search engine</h3>');
-  Results.Add(
-    '<p>Search biological databases for a taxonomic name. The search is done "on the fly" using web services (JSON/XML) or URL API''s.</p>');
-
-  Application.ProcessMessages;
-  StatusBar.SimpleText := 'Fetching taxonomic data from CoL...';
-  GBIFSearch := TGBIFSearch.Create;
-  GBIFSearch.Search(queryStr, key, scientificname, authorship, status, valid_name,
-    kingdom, phylum, classe, order, family);
-  if (Length(status) > 0) then
+  if loadthread <> nil then
   begin
-    if status <> 'accepted' then
-      status := ' (' + status + ' of <i>' + valid_name + '</i>' + ' ' + authorship + ')'
-    else
-      status := ' (' + status + ')';
+    loadthread.Terminate;
+    loadthread.WaitFor;
+    FreeAndNil(loadthread);
   end;
-  taxon_list := kingdom + '; ' + phylum + '; ' + classe + '; ' + order + '; ' + family;
-  Results.Add('<h2><i>' + queryStr + '</i>' + ' ' + authorship + status + '</h2>');
-  Results.Add('<h3>Classification from CoL</h3>');
-  if Length(scientificname) = 0 then
-    Results.Add('No names found')
-  else
-    Results.Add(taxon_list);
-  nrecs := GBIFSearch.Count(key);
-  GBIFSearch.Destroy;
-
-  Application.ProcessMessages;
-  StatusBar.SimpleText := 'Fetching content from Wikipedia...';
-  WikiSearch := TWikiSearch.Create;
-  snippet := WikiSearch.Snippet(queryStr);
-  Application.ProcessMessages;
-  StatusBar.SimpleText := 'Building keyword list...';
-  FFSearch := TFFSearch.Create;
-  tags := FFSearch.termExtract(snippet, 10);
-  tagHTML := '';
-  Results.Add('<h3>Text tags</h3>');
-  for i := 0 to tags.Count - 1 do
-  begin
-    tagWord := tags[i];
-    tagWord := StringReplace(tagWord, ' ', '&nbsp;', [rfReplaceAll]);
-    if Length(tagWord) > 0 then
-      tagHTML := tagHTML +
-        '<span style=''display:inline;border:1px solid blue;padding:1px;margin:2px;line-height:22px;background-color:rgb(181,213,255);''>'
-        + tagWord + ' ' + '</span>';
-  end;
-  Results.Add(tagHTML);
-  FFSearch.Destroy;
-
-  urlWiki := 'http://en.wikipedia.org/wiki/' +
-    StringReplace(queryStr, ' ', '_', [rfReplaceAll]);
-  Results.Add('<h3>Wikipedia</h3>');
-  if Length(snippet) = 0 then
-    Results.Add('No article title matches')
-  else
-  begin
-    Results.Add(snippet);
-    Results.Add('<p><a href="' + urlWiki + '">Original article</a></p>');
-  end;
-
-  Application.ProcessMessages;
-  StatusBar.SimpleText := 'Fetching genomic data from NCBI...';
-  Results.Add('<h3>Genomics from NCBI</h3>');
-  NCBISearch := TNCBISearch.Create;
-  NCBISearch.Summary(queryStr, taxId, division, scientificname,
-    commonname, nucNum, protNum);
-  urlId := 'http://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?mode=Info&id=' +
-    IntToStr(taxId);
-  urlNuc :=
-    'http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?db=Nucleotide&cmd=Search&dopt=DocSum&term=txid'
-    + IntToStr(taxId) + '[Organism:exp]';
-  urlProt :=
-    'http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?db=Protein&cmd=Search&dopt=DocSum&term=txid'
-    + IntToStr(taxId) + '[Organism:exp]';
-  Results.Add('TaxId: <a href="' + urlId + '">' + IntToStr(taxId) + '</a>&nbsp;');
-  if Length(scientificName) = 0 then
-    Results.Add('No items found for ' + '<i>' + queryStr + '</i> ')
-  else
-  begin
-    Results.Add('<i>' + scientificName + '</i>');
-    Results.Add('[' + division + '] ');
-    Results.Add('Sequences: ' + '<a href="' + urlNuc + '">' +
-      IntToStr(nucNum) + '</a> nucleotide, ' + '<a href="' + urlProt +
-      '">' + IntToStr(protNum) + '</a> protein');
-  end;
-  linkOut := NCBISearch.Links(taxId);
-  linkIn := TStringList.Create;
-  Results.Add('<ul type="circle">');
-  for i := 0 to linkOut.Count - 1 do
-  begin
-    itemStr := linkOut.ValueFromIndex[i];
-    if linkIn.IndexOf(itemStr) < 0 then
-    begin
-      Results.Add('<li><a href="' + linkOut.Names[i] + '">' +
-        linkOut.ValueFromIndex[i] + '</a></li>');
-      linkIn.Append(itemStr);
-    end;
-  end;
-  linkIn.Free;
-  Results.Add('</ul>');
-  NCBISearch.Destroy;
-
-  targetDir := IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(
-    GetAppConfigDir(False)) + 'pictures');
-  Application.ProcessMessages;
-  StatusBar.SimpleText := 'Fetching distribution dara from GBIF...';
-  Results.Add('<h3>Map from GBIF</h3>');
-  if key = 0 then
-    Results.Add('No species found')
-  else
-  begin
-    baseMapUrl := 'https://tile.gbif.org/3857/omt/0/0/0@1x.png?style=gbif-classic';
-    pointsUrl :=
-      'https://api.gbif.org/v2/map/occurrence/density/0/0/0@1x.png?style=classic.point&taxonKey='
-      + IntToStr(key);
-    GetUrlAs(baseMapUrl, targetDir + 'basemap.png');
-    GetUrlAs(pointsUrl, targetDir + 'points.png');
-    MergeImages(targetDir + 'basemap.png', targetDir + 'points.png',
-      targetDir + IntToStr(key) + '.png');
-    DeleteFile(targetDir + 'basemap.png');
-    DeleteFile(targetDir + 'points.png');
-    taxUrl := '<a href=http://gbif.org/species/' + IntToStr(key) + '>';
-    Results.Add('<p>' + taxUrl + IntToStr(nrecs) + ' record(s)</a></p>');
-    Results.Add(taxUrl +
-      '<img src="./pictures/' + IntToStr(key) + '.png"' +
-      ' height="56%" width="56%" border=1/></a>');
-  end;
-
-  Application.ProcessMessages;
-  StatusBar.SimpleText := 'Fetching images from Wikimedia Commons...';
-  Results.Add('<h3>Images from Wikimedia Commons</h3>');
-  imgs := WikiSearch.Images(queryStr, 5);
-  if imgs.Count = 0 then
-    Results.Add('No images found')
-  else
-  begin
-    for i := 0 to imgs.Count - 1 do
-    begin
-      imgUrl := 'http://commons.wikimedia.org/wiki/Special:Filepath/' +
-        ExtractDelimited(2, imgs[i], [':']);
-      GetUrlAs(imgUrl, targetDir + ExtractFileName(imgUrl));
-      refUrl := '<a href="http://en.wikipedia.org/wiki/' + imgs[i] + '">';
-      Results.Add(refUrl +
-        //'<img src="http://commons.wikimedia.org/wiki/Special:Filepath/' +
-        '<img src="./pictures/' + ExtractDelimited(2, imgs[i], [':']) +
-        '" width=94 height=145 border=1></a>');
-    end;
-  end;
-  WikiSearch.Destroy;
-
-  Application.ProcessMessages;
-  StatusBar.SimpleText := 'Fetching articles from PubMed...';
-  Results.Add('<h3>Articles from PubMed</h3>');
-  PubMedSearch := TPubMedSearch.Create;
-  pubs := PubMedSearch.Search(queryStr);
-  if (pubs = nil) or (pubs.Count = 0) then
-    Results.Add('No articles found')
-  else
-  begin
-    for i := 0 to pubs.Count - 1 do
-    begin
-      Results.Add('<hr noshade>');
-      Results.Add('<b><a href="http://dx.doi.org/doi:' + pubs.ValueFromIndex[i] +
-        '">' + pubs.Names[i] + '</a></b><br>');
-    end;
-  end;
-  PubMedSearch.Destroy;
-
-  Application.ProcessMessages;
-  StatusBar.SimpleText := 'Ready';
-  Results.Add(
-    '<br><p align="left"><small><small>&copy; 2008-2023 </small><a href="http://github.com/maurobio/"><small>Mauro J. Cavalcanti</small></a></small></p>');
-  Results.Add('</body>');
-  Results.Add('</html>');
-  Screen.Cursor := crDefault;
-  Results.SaveToFile(GetAppConfigDir(False) + 'results.html');
-  //HtmlViewer.LoadFromString(Results.Text);
-  HtmlViewer.LoadFromFile(GetAppConfigDir(False) + 'results.html');
+  loadthread := TLoadThread.Create(queryStr, logo, style);
 end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 var
-  sourcePath: string;
-  targetPath: string;
+  ss: TStringStream;
 begin
-  InitSSLInterface;
   Results := TStringList.Create;
+  if FileExists(ExtractFilePath(Application.ExeName) + 'static/especies.png') then
+  begin
+    ss := TStringStream.Create;
+    ss.LoadFromFile(ExtractFilePath(Application.ExeName) + 'static/especies.png');
+    logo := '<img src="data:image/png;base64,' + EncodeStringBase64(ss.DataString) + '" height="73" width="385">';
+    ss.Free;
+  end;
+  if FileExists(ExtractFilePath(Application.ExeName) + 'static/stylesheet.css') then
+  begin
+    ss := TStringStream.Create;
+    ss.LoadFromFile(ExtractFilePath(Application.ExeName) + 'static/stylesheet.css');
+    style := '<style>' + ss.DataString + '</style>';
+    ss.Free;
+  end;
   if not DirectoryExists(GetAppConfigDir(False)) then
   begin
     if not CreateDir(GetAppConfigDir(False)) then
@@ -422,20 +459,6 @@ begin
       MessageDlg('Error', 'Failed to create data directory.', mtError, [mbOK], 0);
       Halt(0);
     end;
-  end;
-  if not DirectoryExists(GetAppConfigDir(False) +
-    IncludeTrailingPathDelimiter('static')) then
-  begin
-    if not CreateDir(GetAppConfigDir(False) +
-      IncludeTrailingPathDelimiter('static')) then
-    begin
-      MessageDlg('Error', 'Failed to create data directory.', mtError, [mbOK], 0);
-      Halt(0);
-    end;
-    CopyFile('static' + PathDelim + 'especies.png', GetAppConfigDir(False) +
-      PathDelim + 'static' + PathDelim + 'especies.png');
-    CopyFile('static' + PathDelim + 'stylesheet.css', GetAppConfigDir(False) +
-      PathDelim + 'static' + PathDelim + 'stylesheet.css');
   end;
   if FileExists(GetAppConfigDir(False) + 'searchlist.txt') then
     SearchComboBox.Items.LoadFromFile(GetAppConfigDir(False) + 'searchlist.txt');
@@ -457,10 +480,9 @@ begin
   AboutForm.ShowModal;
 end;
 
-procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: boolean);
+procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
-  if MessageDlg('Confirmation', 'Are you sure you want to exit the program?',
-    mtConfirmation, [mbYes, mbNo], 0) = mrYes then
+  if MessageDlg('Confirmation', 'Are you sure you want to exit the program?', mtConfirmation, [mbYes, mbNo], 0) = mrYes then
     CanClose := True
   else
     CanClose := False;
@@ -468,6 +490,12 @@ end;
 
 procedure TMainForm.FormDestroy(Sender: TObject);
 begin
+  if loadthread <> nil then
+  begin
+    loadthread.Terminate;
+    loadthread.WaitFor;
+    FreeAndNil(loadthread);
+  end;
   if SearchComboBox.Items.Count > 0 then
     SearchComboBox.Items.SaveToFile(GetAppConfigDir(False) + 'searchlist.txt');
   Results.Free;
@@ -475,22 +503,21 @@ end;
 
 procedure TMainForm.FormShow(Sender: TObject);
 var
-  AppPath: string;
+  AppPath: String;
 begin
   AppPath := ExtractFilePath(Application.ExeName);
-  HtmlViewer.LoadFromFile(AppPath + '/static/index.htm');
+  if FileExists(AppPath + '/static/index.htm') then
+    HtmlViewer.LoadFromFile(AppPath + '/static/index.htm')
+  else
+    HtmlViewer.LoadFromString('<html><body bgcolor="white"><br><br><br><center><font size=7 color="green">e-Species</font></center></body></html>');
 end;
 
 procedure TMainForm.HomeButtonClick(Sender: TObject);
-var
-  AppPath: string;
 begin
-  AppPath := ExtractFilePath(Application.ExeName);
-  HtmlViewer.LoadFromFile(AppPath + '/static/index.htm');
+  FormShow(Sender);
 end;
 
-procedure TMainForm.HtmlViewerHotSpotClick(Sender: TObject;
-  const SRC: ThtString; var Handled: boolean);
+procedure TMainForm.HtmlViewerHotSpotClick(Sender: TObject; const SRC: ThtString; var Handled: Boolean);
 begin
   if Pos('http', SRC) > 0 then
     OpenURL(SRC);
@@ -503,30 +530,26 @@ end;
 
 procedure TMainForm.ReloadButtonClick(Sender: TObject);
 begin
-  if FileExists(GetAppConfigDir(False) + 'results.html') then
-    HtmlViewer.LoadFromFile(GetAppConfigDir(False) + 'results.html');
+  if Results.Text <> '' then
+    HtmlViewer.LoadFromString(Results.Text);
 end;
 
 procedure TMainForm.SearchButtonClick(Sender: TObject);
 begin
   if WordCount(SearchComboBox.Text, [' ']) <> 2 then
   begin
-    MessageDlg('Error', 'Please enter a binomial specific epithet into the text box.'
-      + sLineBreak + sLineBreak +
+    MessageDlg('Error', 'Please enter a binomial specific epithet into the text box.' + sLineBreak + sLineBreak +
       'Remember: Only *species* are true natural entities!', mtError, [mbOK], 0);
     SearchComboBox.Text := '';
   end
   else
   if WordCount(SearchComboBox.Text, [' ']) = 2 then
-  begin
-    queryStr := SearchComboBox.Text;
-    DoSearch(queryStr);
-  end;
+    DoSearch(SearchComboBox.Text);
 end;
 
 procedure TMainForm.SearchComboBoxEditingDone(Sender: TObject);
 var
-  Choice: integer;
+  Choice: Integer;
 begin
   if not IsEmptyStr(SearchComboBox.Text, [' ']) then
   begin
