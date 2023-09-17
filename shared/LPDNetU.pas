@@ -32,7 +32,7 @@ interface
 
 uses
   Classes, SysUtils, URIParser,
-  httpsend, ssl_openssl, ssl_openssl_lib, synautil, blcksock, synachar;
+  httpsend, ssl_openssl, ssl_openssl_lib, ssl_openssl3, ssl_openssl3_lib, synautil, blcksock, synachar;
 
 type
 
@@ -40,9 +40,11 @@ type
 
   THTTPClient = class(THTTPSend)
   private
+    FResultMessage: String;
     function mHTTPMethod(const Method, URL: String): Boolean;
   public
     constructor Create;
+    procedure Clear;
     function Get(aURL: String; aResponse: TStream): Boolean;
     function Get(aURL: String; var aResponse: String): Boolean;
     function Post(aURL: String; aRequest, aResponse: TStream): Boolean;
@@ -52,9 +54,34 @@ type
     function Delete(aURL: String; aResponse: TStream): Boolean;
     function Delete(aURL: String; var aResponse: String): Boolean;
     function Head(aURL: String): Boolean;
+    property ResultMessage: String read FResultMessage;
   end;
 
+  function OnlineStatus: Byte;
+
 implementation
+
+//0 - offline, 1 - online ssl ok, 2 - online no ssl
+function OnlineStatus: Byte;
+var
+  sock: TTCPBlockSocket;
+begin
+  Result := 0;
+  sock := TTCPBlockSocket.Create;
+  try
+    sock.Connect('google.com', '443');
+    if sock.LastError = 0 then
+    begin
+      sock.SSLDoConnect;
+      if sock.LastError <> 0 then
+        Result := 2
+      else
+        Result := 1;
+    end;
+  finally
+    sock.Free;
+  end;
+end;
 
 { THTTPClient }
 
@@ -66,16 +93,16 @@ var
   tmpheaders: TStringList;
 begin
   tmpheaders := TStringList.Create;
-  tmpheaders.Assign(Self.Headers);
-  Result := Self.HTTPMethod(Method, URL);
-  if Result and ((Self.ResultCode = 301) or (Self.ResultCode = 302) or (Self.ResultCode = 303) or (Self.ResultCode = 307) or (Self.ResultCode = 308)) then
+  tmpheaders.Assign(Headers);
+  Result := HTTPMethod(Method, URL);
+  if Result and ((ResultCode = 301) or (ResultCode = 302) or (ResultCode = 303) or (ResultCode = 307) or (ResultCode = 308)) then
   begin
     newURL := '';
-    for i := 0 to Self.Headers.Count - 1 do
+    for i := 0 to Headers.Count - 1 do
     begin
-      if LowerCase(Copy(Self.Headers[i], 1, 8)) = 'location' then
+      if LowerCase(Copy(Headers[i], 1, 8)) = 'location' then
       begin
-        newURL := Copy(Self.Headers[i], 11, Length(Self.Headers[i]) - 10);
+        newURL := Copy(Headers[i], 11, Length(Headers[i]) - 10);
         if (LowerCase(Copy(newURL, 1, 8)) <> 'https://') and (LowerCase(Copy(newURL, 1, 7)) <> 'http://') and (LowerCase(Copy(newURL, 1, 4)) <> 'self') then
         begin
           uri := ParseURI(URL);
@@ -88,8 +115,8 @@ begin
     end;
     if newURL <> '' then
     begin
-      Self.Headers.Clear;
-      Self.Headers.Assign(tmpheaders);
+      Headers.Clear;
+      Headers.Assign(tmpheaders);
       Result := mHTTPMethod(Method, newURL);
     end;
   end;
@@ -101,16 +128,25 @@ begin
   inherited Create;
 end;
 
+procedure THTTPClient.Clear;
+begin
+  inherited Clear;
+  FResultMessage := '';
+end;
+
 function THTTPClient.Get(aURL: String; aResponse: TStream): Boolean;
 begin      
   Result := False;
   try
-    Self.mHTTPMethod('GET', aURL);
-    Result := (Self.ResultCode = 200);
+    mHTTPMethod('GET', aURL);
+    Result := (ResultCode = 200);
+    if not Result then
+      FResultMessage := Format('[%d] %s', [ResultCode, ResultString]);
   except
-
+    on E: Exception do
+      FResultMessage := E.Message;
   end;
-  aResponse.CopyFrom(Self.Document, 0);
+  aResponse.CopyFrom(Document, 0);
   aResponse.Position := 0;
 end;
 
@@ -119,7 +155,7 @@ var
   wyjscie: TStringStream;
 begin
   wyjscie := TStringStream.Create('');
-  Result := Self.Get(aURL, wyjscie);
+  Result := Get(aURL, wyjscie);
   aResponse := wyjscie.DataString;
   wyjscie.Free;
 end;
@@ -129,13 +165,16 @@ begin
   Result := False;
   try
     aRequest.Position := 0;
-    Self.Document.CopyFrom(aRequest, 0);
-    Self.mHTTPMethod('POST', aURL);
-    Result := (Self.ResultCode = 200);
+    Document.CopyFrom(aRequest, 0);
+    mHTTPMethod('POST', aURL);
+    Result := (ResultCode = 200);
+    if not Result then
+      FResultMessage := Format('[%d] %s', [ResultCode, ResultString]);
   except
-
+    on E: Exception do
+      FResultMessage := E.Message;
   end;
-  aResponse.CopyFrom(Self.Document, 0);
+  aResponse.CopyFrom(Document, 0);
   aResponse.Position := 0;
 end;
 
@@ -156,13 +195,16 @@ begin
   Result := False;
   try
     aRequest.Position := 0;
-    Self.Document.CopyFrom(aRequest, 0);
-    Self.mHTTPMethod('PUT', aURL);
-    Result := (Self.ResultCode = 200);
+    Document.CopyFrom(aRequest, 0);
+    mHTTPMethod('PUT', aURL);
+    Result := (ResultCode = 200);
+    if not Result then
+      FResultMessage := Format('[%d] %s', [ResultCode, ResultString]);
   except
-
+    on E: Exception do
+      FResultMessage := E.Message;
   end;
-  aResponse.CopyFrom(Self.Document, 0);
+  aResponse.CopyFrom(Document, 0);
   aResponse.Position := 0;
 end;
 
@@ -182,12 +224,15 @@ function THTTPClient.Delete(aURL: String; aResponse: TStream): Boolean;
 begin
   Result := False;
   try
-    Self.mHTTPMethod('DELETE', aURL);
-    Result := (Self.ResultCode = 200);
+    mHTTPMethod('DELETE', aURL);
+    Result := (ResultCode = 200);
+    if not Result then
+      FResultMessage := Format('[%d] %s', [ResultCode, ResultString]);
   except
-
+    on E: Exception do
+      FResultMessage := E.Message;
   end;
-  aResponse.CopyFrom(Self.Document, 0);
+  aResponse.CopyFrom(Document, 0);
   aResponse.Position := 0;
 end;
 
@@ -205,10 +250,13 @@ function THTTPClient.Head(aURL: String): Boolean;
 begin
   Result := False;
   try
-    Self.mHTTPMethod('HEAD', aURL);
-    Result := (Self.ResultCode = 200);
+    mHTTPMethod('HEAD', aURL);
+    Result := (ResultCode = 200);
+    if not Result then
+      FResultMessage := Format('[%d] %s', [ResultCode, ResultString]);
   except
-
+    on E: Exception do
+      FResultMessage := E.Message;
   end;
 end;
 
